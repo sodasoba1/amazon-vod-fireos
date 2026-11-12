@@ -26,6 +26,11 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: ${{ env.JAVA_DISTRIBUTION }}
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
 
@@ -41,13 +46,14 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
 
-  release:
+  release-build:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    environment:
-      name: release
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_code: ${{ steps.version.outputs.version_code }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -57,6 +63,11 @@ jobs:
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -71,12 +82,48 @@ jobs:
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
           echo "Building version $VERSION (versionCode $VERSION_CODE)"
 
-      - name: Decode signing keystore
+      - name: Build unsigned release APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease \
+            -PversionNameOverride="${{ steps.version.outputs.version }}" \
+            -PversionCodeOverride="${{ steps.version.outputs.version_code }}"
+          mv app/build/outputs/apk/release/app-release-unsigned.apk \
+             "FireOS-AVOD-${{ steps.version.outputs.version }}-unsigned.apk"
+
+      - name: Upload unsigned APK for isolated signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-release-apk
+          path: FireOS-AVOD-*-unsigned.apk
+          retention-days: 1
+
+  release-sign:
+    needs: release-build
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+    permissions:
+      contents: write
+    steps:
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools build-tools;34.0.0'
+
+      - name: Download unsigned APK
+        uses: actions/download-artifact@v4
+        with:
+          name: unsigned-release-apk
+          path: unsigned-apk
+
+      - name: Sign and verify APK
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          VERSION: ${{ needs.release-build.outputs.version }}
         run: |
           set -euo pipefail
           : "${RELEASE_KEYSTORE_BASE64:?Missing RELEASE_KEYSTORE_BASE64 environment secret}"
@@ -85,45 +132,28 @@ jobs:
           : "${RELEASE_KEY_PASSWORD:?Missing RELEASE_KEY_PASSWORD environment secret}"
           printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/avod-release.jks"
           test -s "$RUNNER_TEMP/avod-release.jks"
-          {
-            echo "RELEASE_STORE_FILE=$RUNNER_TEMP/avod-release.jks"
-            echo "RELEASE_STORE_PASSWORD=$RELEASE_STORE_PASSWORD"
-            echo "RELEASE_KEY_ALIAS=$RELEASE_KEY_ALIAS"
-            echo "RELEASE_KEY_PASSWORD=$RELEASE_KEY_PASSWORD"
-          } >> "$GITHUB_ENV"
-
-      - name: Build signed release APK
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleRelease \
-            -PversionNameOverride="${{ steps.version.outputs.version }}" \
-            -PversionCodeOverride="${{ steps.version.outputs.version_code }}"
-
-      - name: Rename APK with version
-        run: |
-          mv app/build/outputs/apk/release/app-release.apk \
-             "app/build/outputs/apk/release/FireOS-AVOD-${{ steps.version.outputs.version }}.apk"
-
-      - name: Verify APK signature
-        run: |
-          APK="app/build/outputs/apk/release/FireOS-AVOD-${{ steps.version.outputs.version }}.apk"
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$APK"
-
-      - name: Clean up signing keystore
-        if: always()
-        run: rm -f "$RUNNER_TEMP/avod-release.jks"
+          APK_IN="unsigned-apk/FireOS-AVOD-$VERSION-unsigned.apk"
+          APK_OUT="FireOS-AVOD-$VERSION.apk"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" sign \
+            --ks "$RUNNER_TEMP/avod-release.jks" \
+            --ks-key-alias "$RELEASE_KEY_ALIAS" \
+            --ks-pass env:RELEASE_STORE_PASSWORD \
+            --key-pass env:RELEASE_KEY_PASSWORD \
+            --out "$APK_OUT" "$APK_IN"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$APK_OUT"
+          rm -f "$RUNNER_TEMP/avod-release.jks"
 
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: FireOS-AVOD-${{ steps.version.outputs.version }}
-          path: app/build/outputs/apk/release/FireOS-AVOD-*.apk
+          name: FireOS-AVOD-${{ needs.release-build.outputs.version }}
+          path: FireOS-AVOD-*.apk
           retention-days: 90
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ github.token }}
-          name: Release ${{ steps.version.outputs.version }}
-          files: app/build/outputs/apk/release/FireOS-AVOD-*.apk
+          name: Release ${{ needs.release-build.outputs.version }}
+          files: FireOS-AVOD-*.apk
           generate_release_notes: true
