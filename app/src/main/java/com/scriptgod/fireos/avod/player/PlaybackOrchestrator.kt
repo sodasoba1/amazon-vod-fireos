@@ -229,7 +229,7 @@ class PlaybackOrchestrator(
         try {
             MpdTimingCorrector.correctMpd(info.manifestUrl, authService.buildMediaClient())
         } catch (e: Exception) {
-            Log.e(TAG, "MPD correction failed: ${e.message}"); null
+            Log.e(TAG, "MPD correction failed (${e.javaClass.simpleName})"); null
         }
     }
 
@@ -733,7 +733,7 @@ class PlaybackOrchestrator(
                 .filterIsInstance<HttpDataSource.InvalidResponseCodeException>().firstOrNull()
             val failingUrl = httpCause?.dataSpec?.uri?.toString()
             if (httpCause != null) Log.e(TAG, "Player error: ${error.errorCodeName} HTTP ${httpCause.responseCode} url=${redactUrlForLog(failingUrl)}")
-            else Log.e(TAG, "Player error: ${error.errorCodeName}", error)
+            else Log.e(TAG, "Player error: ${error.errorCodeName} cause=${error.cause?.javaClass?.simpleName}")
             logPlaybackSnapshot("PLAYER_ERROR", "code=${error.errorCodeName} http=${httpCause?.responseCode} url=${redactUrlForLog(failingUrl)}")
 
             val currentPos = player?.currentPosition ?: 0L

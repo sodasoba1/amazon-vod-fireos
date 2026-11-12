@@ -5,6 +5,7 @@ import com.scriptgod.fireos.avod.model.TokenData
 import com.scriptgod.fireos.avod.model.TokenRefreshResponse
 import com.google.gson.Gson
 import okhttp3.FormBody
+import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -39,8 +40,9 @@ class AmazonAuthService(private val tokenFile: File) {
             "atv-ps.primevideo.com"
         )
 
-        internal fun isTrustedApiHost(host: String): Boolean =
-            host.lowercase(java.util.Locale.US) in AUTHENTICATED_API_HOSTS
+        internal fun shouldAttachAuthorization(url: HttpUrl): Boolean =
+            url.isHttps && url.port == 443 &&
+                url.host.lowercase(java.util.Locale.US) in AUTHENTICATED_API_HOSTS
     }
 
     private val gson = Gson()
@@ -138,7 +140,7 @@ class AmazonAuthService(private val tokenFile: File) {
         override fun intercept(chain: Interceptor.Chain): Response {
             val originalRequest = chain.request()
             // Never attach account credentials to CDN, subtitle, image, or arbitrary media hosts.
-            if (!isTrustedApiHost(originalRequest.url.host)) return chain.proceed(originalRequest)
+            if (!shouldAttachAuthorization(originalRequest.url)) return chain.proceed(originalRequest)
             val authedRequest = originalRequest.newBuilder()
                 .header("Authorization", "Bearer ${getAccessToken()}")
                 .build()
@@ -211,7 +213,7 @@ class AmazonAuthService(private val tokenFile: File) {
                 }
                 response
             } catch (e: Exception) {
-                Log.e(TAG, "Network error: ${e.message} for $safeUrl")
+                Log.e(TAG, "Network error (${e.javaClass.simpleName}) for $safeUrl")
                 throw e
             }
         }

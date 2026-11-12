@@ -116,7 +116,7 @@ class LoginActivity : AppCompatActivity() {
                 val result = withContext(Dispatchers.IO) { loginFlow.performFullLogin(email, password) }
                 handleResult(result)
             } catch (e: Exception) {
-                Log.w(TAG, "Login error: ${e.message}", e)
+                Log.w(TAG, "Login error (${e.javaClass.simpleName})")
                 showStatus("Login error: ${e.message}")
             } finally {
                 etPassword.setText("")
@@ -132,7 +132,7 @@ class LoginActivity : AppCompatActivity() {
                 val result = withContext(Dispatchers.IO) { loginFlow.submitMfaCode(mfaCode) }
                 handleResult(result)
             } catch (e: Exception) {
-                Log.w(TAG, "MFA error: ${e.message}", e)
+                Log.w(TAG, "MFA error (${e.javaClass.simpleName})")
                 showStatus("MFA error: ${e.message}")
             } finally {
                 etMfa.setText("")
@@ -176,7 +176,7 @@ class LoginActivity : AppCompatActivity() {
                 etPassword.setText("")
                 launchMain()
             } catch (e: Exception) {
-                Log.w(TAG, "Registration failed: ${e.message}", e)
+                Log.w(TAG, "Registration failed (${e.javaClass.simpleName})")
                 showStatus("Registration failed: ${e.message}")
             } finally { showLoading(false) }
         }

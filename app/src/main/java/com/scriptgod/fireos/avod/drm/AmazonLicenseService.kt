@@ -86,7 +86,7 @@ class AmazonLicenseService(
             // Standard base64 decode (not URL-safe) per playback.py:466
             Base64.decode(licenseBase64, Base64.DEFAULT)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse license response", e)
+            Log.e(TAG, "Failed to parse license response (${e.javaClass.simpleName})")
             throw RuntimeException("License parse error: ${e.message}", e)
         }
     }
@@ -98,7 +98,9 @@ class AmazonLicenseService(
      */
     override fun executeProvisionRequest(uuid: UUID, request: ExoMediaDrm.ProvisionRequest): ByteArray {
         val signedRequest = String(request.data)
-        Log.d(TAG, "Provisioning request to: ${request.defaultUrl}")
+        val provisionUri = runCatching { java.net.URI(request.defaultUrl) }.getOrNull()
+        val safeProvisionUrl = provisionUri?.let { "${it.scheme}://${it.host}${it.path}" } ?: "[redacted URL]"
+        Log.d(TAG, "Provisioning request to: $safeProvisionUrl")
         // Google's Certificate Provisioning API requires POST with JSON body
         val jsonBody = "{\"signedRequest\":\"$signedRequest\"}"
         val httpRequest = Request.Builder()
