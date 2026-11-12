@@ -329,24 +329,6 @@ Generate the Base64 value locally and paste it directly into the GitHub Environm
 
 [View recent builds](https://github.com/ScriptGod1337/amazon-vod-android/actions) | [Download latest release](https://github.com/ScriptGod1337/amazon-vod-android/releases/latest)
 
-### Required GitHub Secrets
-
-| Secret | Description |
-|--------|-------------|
-| `RELEASE_KEYSTORE_BASE64` | Base64-encoded `release.keystore` |
-| `RELEASE_STORE_PASSWORD` | Keystore password |
-| `RELEASE_KEY_ALIAS` | Key alias |
-| `RELEASE_KEY_PASSWORD` | Key password |
-
-For local Base64 encoding:
-
-```bash
-# Git Bash (Windows) / Linux
-base64 -w 0 "$HOME/.android/amazon-vod-release.jks"
-```
-
-Pushing a version tag (e.g., `git tag v2026.11.12.1 && git push origin v2026.11.12.1`) creates a GitHub Release with the signed APK attached. Protect release tags/creation permissions so unreviewed code cannot trigger a signing run.
-
 ## Emulator notes
 
 An Android TV emulator (API 34) works for UI, API development, and login testing. Widevine DRM playback requires a physical Fire TV device (L1 hardware security).
