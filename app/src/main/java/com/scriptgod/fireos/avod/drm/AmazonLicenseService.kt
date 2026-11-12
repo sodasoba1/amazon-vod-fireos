@@ -71,7 +71,7 @@ class AmazonLicenseService(
             ?: throw RuntimeException("Empty license response (HTTP ${response.code})")
 
         if (!response.isSuccessful) {
-            throw RuntimeException("License request failed: HTTP ${response.code} — $responseBody")
+            throw RuntimeException("License request failed: HTTP ${response.code}")
         }
 
         // Parse JSON response: { "widevine2License": { "license": "<base64>" } }

@@ -31,6 +31,16 @@ class AmazonAuthService(private val tokenFile: File) {
         const val DEVICE_MODEL = "mdarcy/nvidia/SHIELD Android TV"
         const val OS_VERSION = "NVIDIA/mdarcy/mdarcy:11/RQ1A.210105.003/7094531_2971.7725:user/release-keys"
         const val USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 11; SHIELD Android TV RQ1A.210105.003)"
+
+        private val AUTHENTICATED_API_HOSTS = setOf(
+            "atv-ps-eu.amazon.de", "atv-ps-eu.amazon.co.uk",
+            "atv-ps.amazon.com", "atv-ps-fe.amazon.co.jp",
+            "atv-ps-eu.primevideo.com", "atv-ps-fe.primevideo.com",
+            "atv-ps.primevideo.com"
+        )
+
+        internal fun isTrustedApiHost(host: String): Boolean =
+            host.lowercase(java.util.Locale.US) in AUTHENTICATED_API_HOSTS
     }
 
     private val gson = Gson()
@@ -124,6 +134,8 @@ class AmazonAuthService(private val tokenFile: File) {
     inner class AuthInterceptor : Interceptor {
         override fun intercept(chain: Interceptor.Chain): Response {
             val originalRequest = chain.request()
+            // Never attach account credentials to CDN, subtitle, image, or arbitrary media hosts.
+            if (!isTrustedApiHost(originalRequest.url.host)) return chain.proceed(originalRequest)
             val authedRequest = originalRequest.newBuilder()
                 .header("Authorization", "Bearer ${getAccessToken()}")
                 .build()
@@ -154,41 +166,49 @@ class AmazonAuthService(private val tokenFile: File) {
             .build()
     }
 
+    /** Media/CDN client deliberately omits Amazon Authorization and app identity headers. */
+    fun buildMediaClient(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .addInterceptor(NetworkLogInterceptor())
+        .build()
+
     /** Logs network errors at ERROR level so they're visible in logcat on release builds. */
     inner class NetworkLogInterceptor : Interceptor {
         override fun intercept(chain: Interceptor.Chain): Response {
             val request = chain.request()
             val path = request.url.encodedPath.lowercase()
             val shouldLog = path.endsWith(".mpd") || path.endsWith(".mp4") || path.contains("license")
+            val safeUrl = "${request.url.scheme}://${request.url.host}${request.url.encodedPath}"
             if (shouldLog) {
-                Log.i(TAG, "HTTP ${request.method} ${request.url}")
+                Log.i(TAG, "HTTP ${request.method} $safeUrl")
                 if (path.endsWith(".mp4")) {
                     val segmentKind = when {
                         path.contains("_video_") -> "video"
                         path.contains("_audio_") -> "audio"
                         else -> "segment"
                     }
-                    Log.i(TAG, "Media $segmentKind segment observed: ${request.url}")
+                    Log.i(TAG, "Media $segmentKind segment observed: $safeUrl")
                     onMediaRequestObserved?.invoke(request.url.toString())
                 }
             }
             return try {
                 val response = chain.proceed(request)
                 if (!response.isSuccessful) {
-                    Log.e(TAG, "HTTP ${response.code} ${request.method} ${request.url}")
+                    Log.e(TAG, "HTTP ${response.code} ${request.method} $safeUrl")
                     if (shouldLog) {
-                        val body = runCatching { response.peekBody(512).string() }.getOrDefault("")
                         Log.e(
                             TAG,
                             "HTTP ${response.code} detail: range=${request.header("Range")} " +
                                 "proto=${response.protocol} server=${response.header("Server")} " +
-                                "via=${response.header("Via")} body=${body.replace('\n', ' ')}"
+                                "via=${response.header("Via")}"
                         )
                     }
                 }
                 response
             } catch (e: Exception) {
-                Log.e(TAG, "Network error: ${e.message} for ${request.url}")
+                Log.e(TAG, "Network error: ${e.message} for $safeUrl")
                 throw e
             }
         }

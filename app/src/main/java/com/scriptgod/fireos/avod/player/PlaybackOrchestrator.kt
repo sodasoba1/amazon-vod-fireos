@@ -227,7 +227,7 @@ class PlaybackOrchestrator(
 
     private suspend fun correctManifest(info: PlaybackInfo): String? = withContext(Dispatchers.IO) {
         try {
-            MpdTimingCorrector.correctMpd(info.manifestUrl, authService.buildAuthenticatedClient())
+            MpdTimingCorrector.correctMpd(info.manifestUrl, authService.buildMediaClient())
         } catch (e: Exception) {
             Log.e(TAG, "MPD correction failed: ${e.message}"); null
         }
@@ -346,6 +346,13 @@ class PlaybackOrchestrator(
         return requested
     }
 
+    private fun redactUrlForLog(raw: String?): String {
+        if (raw.isNullOrBlank()) return ""
+        return runCatching {
+            android.net.Uri.parse(raw).buildUpon().clearQuery().fragment(null).build().toString()
+        }.getOrDefault("[redacted URL]")
+    }
+
     private fun setupPlayer(
         info: PlaybackInfo,
         startPositionOverride: Long? = null,
@@ -354,8 +361,8 @@ class PlaybackOrchestrator(
     ) {
         releasePlayer()
         Log.i(TAG, buildString {
-            append("Playback info: manifest=").append(info.manifestUrl)
-            append(" license=").append(info.licenseUrl)
+            append("Playback info: manifest=").append(redactUrlForLog(info.manifestUrl))
+            append(" license=").append(redactUrlForLog(info.licenseUrl))
             append(" resumeSeeked=").append(resumeSeeked)
             append(" selectedQuality=").append(currentQuality)
             append(" startPositionOverride=").append(startPositionOverride)
@@ -363,9 +370,9 @@ class PlaybackOrchestrator(
             append(" stallRestartCount=").append(stallWatchdog.stallRestartCount)
             append(" passthroughRequested=")
                 .append(context.getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean(PREF_AUDIO_PASSTHROUGH, false))
-            append(" lastMediaSegment=").append(lastMediaSegmentUrl)
-            append(" lastVideoSegment=").append(lastVideoSegmentUrl)
-            append(" lastAudioSegment=").append(lastAudioSegmentUrl)
+            append(" lastMediaSegment=").append(redactUrlForLog(lastMediaSegmentUrl))
+            append(" lastVideoSegment=").append(redactUrlForLog(lastVideoSegmentUrl))
+            append(" lastAudioSegment=").append(redactUrlForLog(lastAudioSegmentUrl))
         })
 
         val drmDiag = java.io.File(context.getExternalFilesDir(null), "drm_diag.txt").also { it.delete() }
@@ -401,7 +408,7 @@ class PlaybackOrchestrator(
         }
 
         val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
-            authService.buildAuthenticatedClient()
+            authService.buildMediaClient()
         )
         val correctedMpd = correctedMpdContent
         val dataSourceFactory = if (correctedMpd != null) {
@@ -535,7 +542,7 @@ class PlaybackOrchestrator(
      * read at offset 0 succeeded while real reads were still being reset by the CDN.
      */
     private fun probeMultichannel(url: String, posMs: Long, durMs: Long): Boolean {
-        val client = authService.buildAuthenticatedClient()
+        val client = authService.buildMediaClient()
         val total = client.newCall(okhttp3.Request.Builder().url(url).header("Range", "bytes=0-0").build())
             .execute().use { r ->
                 if (r.code !in 200..299) return false
@@ -725,9 +732,9 @@ class PlaybackOrchestrator(
             val httpCause = generateSequence(error.cause) { it.cause }
                 .filterIsInstance<HttpDataSource.InvalidResponseCodeException>().firstOrNull()
             val failingUrl = httpCause?.dataSpec?.uri?.toString()
-            if (httpCause != null) Log.e(TAG, "Player error: ${error.errorCodeName} HTTP ${httpCause.responseCode} url=$failingUrl")
+            if (httpCause != null) Log.e(TAG, "Player error: ${error.errorCodeName} HTTP ${httpCause.responseCode} url=${redactUrlForLog(failingUrl)}")
             else Log.e(TAG, "Player error: ${error.errorCodeName}", error)
-            logPlaybackSnapshot("PLAYER_ERROR", "code=${error.errorCodeName} http=${httpCause?.responseCode} url=$failingUrl")
+            logPlaybackSnapshot("PLAYER_ERROR", "code=${error.errorCodeName} http=${httpCause?.responseCode} url=${redactUrlForLog(failingUrl)}")
 
             val currentPos = player?.currentPosition ?: 0L
             if (error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED && !audioRestartDone) {
@@ -829,7 +836,7 @@ class PlaybackOrchestrator(
         override fun onLoadCompleted(eventTime: AnalyticsListener.EventTime, loadEventInfo: LoadEventInfo, mediaLoadData: MediaLoadData) {
             val pos = eventTime.currentPlaybackPositionMs
             if (pos in 3_350_000..3_460_000) {
-                Log.w(TAG, "LOAD pos=${pos}ms type=${mediaLoadData.dataType} seg=${mediaLoadData.mediaStartTimeMs}-${mediaLoadData.mediaEndTimeMs}ms url=${loadEventInfo.uri}")
+                Log.w(TAG, "LOAD pos=${pos}ms type=${mediaLoadData.dataType} seg=${mediaLoadData.mediaStartTimeMs}-${mediaLoadData.mediaEndTimeMs}ms url=${redactUrlForLog(loadEventInfo.uri.toString())}")
             }
         }
     }

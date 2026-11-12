@@ -197,7 +197,6 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun launchMain() {
-        tokenStore.clearLogoutTimestamp()
         startActivity(Intent(this, MainActivity::class.java))
         finish()
     }
