@@ -20,8 +20,11 @@ gradle/wrapper/gradle-wrapper.jar
 hs_err_pid*
 replay_pid*
 
-# Signing
-release.keystore
+# Signing material — never commit private keys or keystores
+*.keystore
+*.jks
+*.p12
+*.pfx
 
 # Secrets
 .env
