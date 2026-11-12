@@ -3,6 +3,44 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+val releaseStoreFile = providers.environmentVariable("RELEASE_STORE_FILE").orNull
+val releaseStorePassword = providers.environmentVariable("RELEASE_STORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("RELEASE_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("RELEASE_KEY_PASSWORD").orNull
+val hasReleaseSigning = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all { !it.isNullOrBlank() }
+
+val requireReleaseSigning = tasks.register("requireReleaseSigning") {
+    doLast {
+        val required = mapOf(
+            "RELEASE_STORE_FILE" to releaseStoreFile,
+            "RELEASE_STORE_PASSWORD" to releaseStorePassword,
+            "RELEASE_KEY_ALIAS" to releaseKeyAlias,
+            "RELEASE_KEY_PASSWORD" to releaseKeyPassword
+        )
+        val missing = required.filterValues { it.isNullOrBlank() }.keys
+        if (missing.isNotEmpty()) {
+            throw GradleException(
+                "Release signing is not configured. Missing environment variables: ${missing.joinToString()}"
+            )
+        }
+        val keystore = file(requireNotNull(releaseStoreFile))
+        if (!keystore.isFile) {
+            throw GradleException("Release keystore file does not exist: ${keystore.absolutePath}")
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name == "assembleRelease" || name == "bundleRelease") {
+        dependsOn(requireReleaseSigning)
+    }
+}
+
 android {
     namespace = "com.scriptgod.fireos.avod"
     compileSdk = 34
@@ -16,18 +54,21 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = file(System.getenv("RELEASE_STORE_FILE")
-                ?: "/home/vscode/amazon-vod-android/release.keystore")
-            storePassword = System.getenv("RELEASE_STORE_PASSWORD") ?: "firetv_store"
-            keyAlias = System.getenv("RELEASE_KEY_ALIAS") ?: "firetv"
-            keyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: "firetv_store"
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseStoreFile))
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+            }
         }
     }
 
     buildTypes {
         getByName("release") {
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
         }
         getByName("debug") {
