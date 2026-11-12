@@ -97,15 +97,15 @@ class AmazonLicenseService(
      * Must use plain client — no Amazon auth headers go to Google's provisioning server.
      */
     override fun executeProvisionRequest(uuid: UUID, request: ExoMediaDrm.ProvisionRequest): ByteArray {
-        val signedRequest = String(request.data)
-        val provisionUri = runCatching { java.net.URI(request.defaultUrl) }.getOrNull()
+        val signedRequest = String(request.data, Charsets.UTF_8)
+        val provisionUrl = buildProvisioningUrl(request.defaultUrl, signedRequest)
+        val provisionUri = runCatching { java.net.URI(provisionUrl) }.getOrNull()
         val safeProvisionUrl = provisionUri?.let { "${it.scheme}://${it.host}${it.path}" } ?: "[redacted URL]"
         Log.d(TAG, "Provisioning request to: $safeProvisionUrl")
-        // Google's Certificate Provisioning API requires POST with JSON body
-        val jsonBody = "{\"signedRequest\":\"$signedRequest\"}"
+        // Match Media3 HttpMediaDrmCallback: signedRequest is a URL parameter and the POST body is empty.
         val httpRequest = Request.Builder()
-            .url(request.defaultUrl)
-            .post(jsonBody.toRequestBody("application/json".toMediaType()))
+            .url(provisionUrl)
+            .post(ByteArray(0).toRequestBody(null))
             .build()
         val response = provisionClient.newCall(httpRequest).execute()
         val body = response.body?.bytes()
@@ -116,4 +116,10 @@ class AmazonLicenseService(
         }
         return body
     }
+
+    internal fun buildProvisioningUrl(defaultUrl: String, signedRequest: String): String =
+        defaultUrl.toHttpUrl().newBuilder()
+            .addQueryParameter("signedRequest", signedRequest)
+            .build()
+            .toString()
 }
