@@ -1,5 +1,6 @@
 package com.scriptgod.fireos.avod.auth
 
+import android.util.Base64
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -17,7 +18,6 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
-import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -331,15 +331,17 @@ class LoginFlow {
 
     private fun refreshIdentity() {
         val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
-        codeVerifier  = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-        codeChallenge = Base64.getUrlEncoder().withoutPadding()
-            .encodeToString(MessageDigest.getInstance("SHA-256").digest(codeVerifier.toByteArray()))
+        codeVerifier  = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+        codeChallenge = Base64.encodeToString(
+            MessageDigest.getInstance("SHA-256").digest(codeVerifier.toByteArray()),
+            Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+        )
         deviceId = UUID.randomUUID().toString().replace("-", "").lowercase()
         clientId = hexEncode("${deviceId}#A1MPSLFC7L5AFK")
     }
 
     private fun setupFraudCookies() {
-        val frc = Base64.getEncoder().encodeToString(ByteArray(313).also { SecureRandom().nextBytes(it) })
+        val frc = Base64.encodeToString(ByteArray(313).also { SecureRandom().nextBytes(it) }, Base64.NO_WRAP)
         val mapMd = mapOf(
             "device_registration_data" to mapOf("software_version" to "130050002"),
             "app_identifier" to mapOf(
@@ -355,7 +357,7 @@ class LoginFlow {
                 "smartlock_supported" to 0, "permission_runtime_grant" to 0
             )
         )
-        val mapMdEncoded = Base64.getEncoder().encodeToString(gson.toJson(mapMd).toByteArray())
+        val mapMdEncoded = Base64.encodeToString(gson.toJson(mapMd).toByteArray(), Base64.NO_WRAP)
         val expiry = (System.currentTimeMillis() / 1000 + 86400) * 1000
         cookieStore["amazon.com:frc"]    = Cookie.Builder().domain("amazon.com").path("/").name("frc").value(frc).expiresAt(expiry).build()
         cookieStore["amazon.com:map-md"] = Cookie.Builder().domain("amazon.com").path("/").name("map-md").value(mapMdEncoded).expiresAt(expiry).build()
