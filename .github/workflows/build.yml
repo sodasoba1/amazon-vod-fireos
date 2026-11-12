@@ -27,7 +27,7 @@ jobs:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
@@ -65,7 +65,7 @@ jobs:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
@@ -117,7 +117,7 @@ jobs:
           distribution: ${{ env.JAVA_DISTRIBUTION }}
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools build-tools;34.0.0'
 
@@ -136,6 +136,7 @@ jobs:
           VERSION: ${{ needs.release-build.outputs.version }}
         run: |
           set -euo pipefail
+          trap 'rm -f "$RUNNER_TEMP/avod-release.jks"' EXIT
           : "${RELEASE_KEYSTORE_BASE64:?Missing RELEASE_KEYSTORE_BASE64 environment secret}"
           : "${RELEASE_STORE_PASSWORD:?Missing RELEASE_STORE_PASSWORD environment secret}"
           : "${RELEASE_KEY_ALIAS:?Missing RELEASE_KEY_ALIAS environment secret}"
@@ -151,7 +152,6 @@ jobs:
             --key-pass env:RELEASE_KEY_PASSWORD \
             --out "$APK_OUT" "$APK_IN"
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$APK_OUT"
-          rm -f "$RUNNER_TEMP/avod-release.jks"
 
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
