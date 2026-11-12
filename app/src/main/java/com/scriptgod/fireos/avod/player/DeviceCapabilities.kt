@@ -23,14 +23,27 @@ object DeviceCapabilities {
      * Queries the Widevine CDM for its security level.
      * Returns "L1" on real hardware with a TEE; "L3" on emulators / un-provisioned devices.
      */
-    fun widevineSecurityLevel(): String = try {
-        MediaDrm(WIDEVINE_UUID).use { it.getPropertyString("securityLevel") }
-    } catch (e: android.media.UnsupportedSchemeException) {
-        Log.w(TAG, "Widevine DRM not supported on this device — assuming L3")
-        "L3"
-    } catch (e: Exception) {
-        Log.e(TAG, "Unexpected MediaDrm error querying security level — safe-failing to L3: ${e.message}")
-        "L3"
+    @Suppress("DEPRECATION")
+    fun widevineSecurityLevel(): String {
+        val drm = try {
+            MediaDrm(WIDEVINE_UUID)
+        } catch (e: android.media.UnsupportedSchemeException) {
+            Log.w(TAG, "Widevine DRM not supported on this device — assuming L3")
+            return "L3"
+        } catch (e: Exception) {
+            Log.e(TAG, "Unable to initialise Widevine DRM — assuming L3 (${e.javaClass.simpleName})")
+            return "L3"
+        }
+
+        return try {
+            drm.getPropertyString("securityLevel")
+        } catch (e: Exception) {
+            Log.e(TAG, "Unable to query Widevine security level — assuming L3 (${e.javaClass.simpleName})")
+            "L3"
+        } finally {
+            // MediaDrm.close() was added in API 28; release() is required on API 18–27.
+            drm.release()
+        }
     }
 
     /** Returns true if this device has any H265/HEVC video decoder. */
