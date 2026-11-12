@@ -7,12 +7,16 @@ val releaseStoreFile = providers.environmentVariable("RELEASE_STORE_FILE").orNul
 val releaseStorePassword = providers.environmentVariable("RELEASE_STORE_PASSWORD").orNull
 val releaseKeyAlias = providers.environmentVariable("RELEASE_KEY_ALIAS").orNull
 val releaseKeyPassword = providers.environmentVariable("RELEASE_KEY_PASSWORD").orNull
-val hasReleaseSigning = listOf(
+val releaseSigningValues = listOf(
     releaseStoreFile,
     releaseStorePassword,
     releaseKeyAlias,
     releaseKeyPassword
-).all { !it.isNullOrBlank() }
+)
+val hasReleaseSigning = releaseSigningValues.all { !it.isNullOrBlank() }
+if (releaseSigningValues.any { !it.isNullOrBlank() } && !hasReleaseSigning) {
+    throw GradleException("Release signing is partially configured. Set all four RELEASE_* environment variables or none.")
+}
 
 android {
     namespace = "com.scriptgod.fireos.avod"
