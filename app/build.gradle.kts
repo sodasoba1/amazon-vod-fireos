@@ -3,6 +3,21 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+val releaseStoreFile = providers.environmentVariable("RELEASE_STORE_FILE").orNull
+val releaseStorePassword = providers.environmentVariable("RELEASE_STORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("RELEASE_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("RELEASE_KEY_PASSWORD").orNull
+val releaseSigningValues = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+)
+val hasReleaseSigning = releaseSigningValues.all { !it.isNullOrBlank() }
+if (releaseSigningValues.any { !it.isNullOrBlank() } && !hasReleaseSigning) {
+    throw GradleException("Release signing is partially configured. Set all four RELEASE_* environment variables or none.")
+}
+
 android {
     namespace = "com.scriptgod.fireos.avod"
     compileSdk = 34
@@ -16,18 +31,21 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = file(System.getenv("RELEASE_STORE_FILE")
-                ?: "/home/vscode/amazon-vod-android/release.keystore")
-            storePassword = System.getenv("RELEASE_STORE_PASSWORD") ?: "firetv_store"
-            keyAlias = System.getenv("RELEASE_KEY_ALIAS") ?: "firetv"
-            keyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: "firetv_store"
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseStoreFile))
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+            }
         }
     }
 
     buildTypes {
         getByName("release") {
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
         }
         getByName("debug") {

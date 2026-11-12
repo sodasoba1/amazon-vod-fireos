@@ -1,20 +1,21 @@
 name: Build APK
 
 on:
-  push:
-    tags: ['v*']
   pull_request:
     branches: [main]
-  workflow_dispatch:
+  push:
+    tags: ['v*']
 
 env:
   JAVA_VERSION: '17'
   JAVA_DISTRIBUTION: 'temurin'
 
 jobs:
-  build:
+  pull-request:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,91 +26,144 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: ${{ env.JAVA_DISTRIBUTION }}
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.6'
 
-      - name: Generate version name
-        id: version
+      - name: Build unsigned debug APK
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            # Use the tag name directly (strip leading "v")
-            VERSION="${GITHUB_REF#refs/tags/v}"
-          else
-            # Auto-generate from date for PRs / manual runs
-            DATE=$(date -u +%Y.%m.%d)
-            COUNT=1
-            while git tag -l "v${DATE}.${COUNT}" | grep -q .; do
-              COUNT=$((COUNT + 1))
-            done
-            VERSION="${DATE}.${COUNT}"
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
-      - name: Validate signing secrets
-        run: |
-          if [ -z "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
-            echo "::error::Missing RELEASE_KEYSTORE_BASE64 secret"
-            exit 1
-          fi
-          if [ -z "${{ secrets.RELEASE_STORE_PASSWORD }}" ]; then
-            echo "::error::Missing RELEASE_STORE_PASSWORD secret"
-            exit 1
-          fi
-          if [ -z "${{ secrets.RELEASE_KEY_ALIAS }}" ]; then
-            echo "::error::Missing RELEASE_KEY_ALIAS secret"
-            exit 1
-          fi
-          if [ -z "${{ secrets.RELEASE_KEY_PASSWORD }}" ]; then
-            echo "::error::Missing RELEASE_KEY_PASSWORD secret"
-            exit 1
-          fi
-
-      - name: Decode release keystore
-        run: |
-          echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > release.keystore
-
-      - name: Set up signing config
-        run: |
-          echo "RELEASE_STORE_FILE=${{ github.workspace }}/release.keystore" >> $GITHUB_ENV
-          echo "RELEASE_STORE_PASSWORD=${{ secrets.RELEASE_STORE_PASSWORD }}" >> $GITHUB_ENV
-          echo "RELEASE_KEY_ALIAS=${{ secrets.RELEASE_KEY_ALIAS }}" >> $GITHUB_ENV
-          echo "RELEASE_KEY_PASSWORD=${{ secrets.RELEASE_KEY_PASSWORD }}" >> $GITHUB_ENV
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      - name: Build release APK
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          VERSION_CODE=$(echo "$VERSION" | awk -F. '{printf "%04d%02d%02d%02d\n", $1, $2, $3, $4}')
-          gradle assembleRelease \
-            -PversionNameOverride=$VERSION \
-            -PversionCodeOverride=$VERSION_CODE
-
-      - name: Rename APK with version
-        run: |
-          mv app/build/outputs/apk/release/app-release.apk \
-             app/build/outputs/apk/release/FireOS-AVOD-${{ steps.version.outputs.version }}.apk
-
-      - name: Clean up keystore
-        if: always()
-        run: rm -f release.keystore
-
-      - name: Upload APK artifact
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: FireOS-AVOD-${{ steps.version.outputs.version }}
-          path: app/build/outputs/apk/release/FireOS-AVOD-*.apk
+          name: FireOS-AVOD-debug-${{ github.event.pull_request.number }}
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
+  release-build:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_code: ${{ steps.version.outputs.version_code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Generate version
+        id: version
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]?$ ]]; then
+            echo "::error::Tag must use vYYYY.MM.DD.N with N from 1 to 99"
+            exit 1
+          fi
+          VERSION_CODE=$(echo "$VERSION" | awk -F. '{printf "%02d%02d%02d%02d", $1 % 100, $2, $3, $4}')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "Building version $VERSION (versionCode $VERSION_CODE)"
+
+      - name: Build unsigned release APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease \
+            -PversionNameOverride="${{ steps.version.outputs.version }}" \
+            -PversionCodeOverride="${{ steps.version.outputs.version_code }}"
+          mv app/build/outputs/apk/release/app-release-unsigned.apk \
+             "FireOS-AVOD-${{ steps.version.outputs.version }}-unsigned.apk"
+
+      - name: Upload unsigned APK for isolated signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-release-apk
+          path: FireOS-AVOD-*-unsigned.apk
+          retention-days: 1
+
+  release-sign:
+    needs: release-build
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+    permissions:
+      contents: write
+    steps:
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools build-tools;34.0.0'
+
+      - name: Download unsigned APK
+        uses: actions/download-artifact@v4
+        with:
+          name: unsigned-release-apk
+          path: unsigned-apk
+
+      - name: Sign and verify APK
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          VERSION: ${{ needs.release-build.outputs.version }}
+        run: |
+          set -euo pipefail
+          trap 'rm -f "$RUNNER_TEMP/avod-release.jks"' EXIT
+          : "${RELEASE_KEYSTORE_BASE64:?Missing RELEASE_KEYSTORE_BASE64 environment secret}"
+          : "${RELEASE_STORE_PASSWORD:?Missing RELEASE_STORE_PASSWORD environment secret}"
+          : "${RELEASE_KEY_ALIAS:?Missing RELEASE_KEY_ALIAS environment secret}"
+          : "${RELEASE_KEY_PASSWORD:?Missing RELEASE_KEY_PASSWORD environment secret}"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/avod-release.jks"
+          test -s "$RUNNER_TEMP/avod-release.jks"
+          APK_IN="unsigned-apk/FireOS-AVOD-$VERSION-unsigned.apk"
+          APK_OUT="FireOS-AVOD-$VERSION.apk"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" sign \
+            --ks "$RUNNER_TEMP/avod-release.jks" \
+            --ks-key-alias "$RELEASE_KEY_ALIAS" \
+            --ks-pass env:RELEASE_STORE_PASSWORD \
+            --key-pass env:RELEASE_KEY_PASSWORD \
+            --out "$APK_OUT" "$APK_IN"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$APK_OUT"
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FireOS-AVOD-${{ needs.release-build.outputs.version }}
+          path: FireOS-AVOD-*.apk
           retention-days: 90
 
-      - name: Create Release (on version tag)
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          token: ${{ secrets.RELEASE_PAT }}
-          name: Release ${{ steps.version.outputs.version }}
-          files: app/build/outputs/apk/release/FireOS-AVOD-*.apk
+          token: ${{ github.token }}
+          name: Release ${{ needs.release-build.outputs.version }}
+          files: FireOS-AVOD-*.apk
           generate_release_notes: true

@@ -105,7 +105,7 @@ Selecting any movie or series opens a full detail screen before playback:
 
 ### CI/CD
 
-- **GitHub Actions** — builds on version tags (`v*`), PRs to `main`, and manual dispatch; date-based versioning (`YYYY.MM.DD.N`); automatic signed APK releases
+- **GitHub Actions** — pull requests build an unsigned debug APK; version tags (`v*`) produce signed releases using secrets from a protected GitHub Environment
 
 ## Architecture
 
@@ -257,15 +257,19 @@ Output: `app/build/outputs/apk/debug/app-debug.apk`
 
 ### Release build
 
+A local release build is unsigned unless all four signing environment variables are set. The keystore must be stored outside the repository. GitHub Actions builds the APK without signing secrets, then signs it in a separate protected job.
+
 ```bash
+export RELEASE_STORE_FILE="$HOME/.android/amazon-vod-release.jks"
+export RELEASE_STORE_PASSWORD="your-keystore-password"
+export RELEASE_KEY_ALIAS="your-key-alias"
+export RELEASE_KEY_PASSWORD="your-key-password"
 ./gradlew assembleRelease
 ```
 
-Output: `app/build/outputs/apk/release/app-release.apk`
+On Windows PowerShell, set the equivalent environment variables with `$env:NAME="value"`.
 
-> Signing requires `release.keystore` at the repo root and the four env vars
-> `RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`
-> (set automatically by CI; for local builds export them manually or the APK will be unsigned).
+Debug builds do not require signing secrets. The CI release pipeline explicitly signs and verifies the APK after the build job; the signing job does not check out or execute repository build scripts.
 
 ### Versioned build (CI style)
 
@@ -281,8 +285,11 @@ Output: `app/build/outputs/apk/release/app-release.apk`
 # Connect to Fire TV
 adb connect <device-ip>:5555
 
-# Install
-adb install -r app/build/outputs/apk/release/app-release.apk
+# Install a locally built debug APK
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+# Or install the signed APK downloaded from this repository's GitHub Release
+adb install -r FireOS-AVOD-<version>.apk
 
 # Launch
 adb shell am start -n com.scriptgod.fireos.avod/.ui.LoginActivity
@@ -310,26 +317,39 @@ The app compares the file's mtime against `logged_out_at` — if the file is new
 
 ## CI/CD
 
-GitHub Actions builds APKs on version tags (`v*`), pull requests to `main`, and manual dispatch. Versioning uses the date format `YYYY.MM.DD.N` (e.g., `2026.02.27.5`).
+GitHub Actions builds an unsigned debug APK for pull requests to `main`. A pushed version tag (`v*`) triggers an unsigned build followed by a separate signing job. The signing job does not check out the repository or run Gradle. It uses the GitHub Environment named `release`; configure that environment with required reviewers or other deployment protection before adding its secrets.
 
-[View recent builds](https://github.com/ScriptGod1337/amazon-vod-android/actions) | [Download latest release](https://github.com/ScriptGod1337/amazon-vod-android/releases/latest)
-
-### Required GitHub Secrets
+Create these **environment secrets** under Settings → Environments → `release` (do not add them as ordinary repository secrets):
 
 | Secret | Description |
 |--------|-------------|
-| `RELEASE_KEYSTORE_BASE64` | Base64-encoded `release.keystore` |
+| `RELEASE_KEYSTORE_BASE64` | Base64-encoded contents of your private JKS/keystore file |
 | `RELEASE_STORE_PASSWORD` | Keystore password |
-| `RELEASE_KEY_ALIAS` | Key alias |
-| `RELEASE_KEY_PASSWORD` | Key password |
+| `RELEASE_KEY_ALIAS` | Alias of the signing key |
+| `RELEASE_KEY_PASSWORD` | Private-key password |
 
-Generate the keystore secret:
+Generate a new key on your own machine (Git Bash on Windows):
+
 ```bash
-base64 -w0 release.keystore | pbcopy  # macOS
-base64 -w0 release.keystore           # Linux (pipe to clipboard)
+mkdir -p "$HOME/.android"
+keytool -genkeypair -v \
+  -keystore "$HOME/.android/amazon-vod-release.jks" \
+  -storetype JKS \
+  -alias amazonvod \
+  -keyalg RSA -keysize 2048 -validity 10000
+
+# Verify the new certificate; keytool prompts for the keystore password
+keytool -list -v \
+  -keystore "$HOME/.android/amazon-vod-release.jks" \
+  -alias amazonvod
+
+# Copy the Base64 keystore directly to the Windows clipboard
+base64 -w 0 "$HOME/.android/amazon-vod-release.jks" | clip.exe
 ```
 
-Pushing a version tag (e.g., `git tag v2026.02.28.1 && git push --tags`) creates a GitHub Release with the signed APK attached.
+The key-generation command prompts for passwords; do not put passwords on the command line. Store the keystore and both passwords in separate secure backups. Paste the clipboard contents into `RELEASE_KEYSTORE_BASE64`, then add the prompted passwords and alias (`amazonvod`) as the other three **environment secrets**. Do not commit the keystore, place it in the repository, or paste its contents/passwords into issues, pull requests, or chat.
+
+[View recent builds](https://github.com/sodasoba1/amazon-vod-fireos/actions) | [Download latest release](https://github.com/sodasoba1/amazon-vod-fireos/releases/latest)
 
 ## Emulator notes
 
