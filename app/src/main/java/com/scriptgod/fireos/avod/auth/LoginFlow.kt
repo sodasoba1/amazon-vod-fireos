@@ -61,7 +61,7 @@ class LoginFlow {
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
-        .followRedirects(true).followSslRedirects(true)
+        .followRedirects(true).followSslRedirects(false)
         .cookieJar(cookieJar)
         // Identify requests as coming from the Amazon app — matches what register_device.py sends.
         // Without these headers Amazon serves a browser-mode login page that requires JS cookies.
@@ -299,7 +299,7 @@ class LoginFlow {
         )
 
         val reqId = UUID.randomUUID().toString().replace("-", "")
-        val response = httpClient.newCall(
+        val response = noRedirectClient.newCall(
             Request.Builder()
                 .url("https://api.$domain/auth/register")
                 .post(gson.toJson(payload).toRequestBody("application/json".toMediaType()))
@@ -377,9 +377,9 @@ class LoginFlow {
         )
         val mapMdEncoded = Base64.encodeToString(gson.toJson(mapMd).toByteArray(), Base64.NO_WRAP)
         val expiry = (System.currentTimeMillis() / 1000 + 86400) * 1000
-        cookieStore["amazon.com:frc"]    = Cookie.Builder().domain("amazon.com").path("/").name("frc").value(frc).expiresAt(expiry).build()
-        cookieStore["amazon.com:map-md"] = Cookie.Builder().domain("amazon.com").path("/").name("map-md").value(mapMdEncoded).expiresAt(expiry).build()
-        cookieStore["amazon.com:sid"]    = Cookie.Builder().domain("amazon.com").path("/").name("sid").value("").expiresAt(expiry).build()
+        cookieStore["amazon.com:frc"]    = Cookie.Builder().domain("amazon.com").path("/").name("frc").value(frc).secure().expiresAt(expiry).build()
+        cookieStore["amazon.com:map-md"] = Cookie.Builder().domain("amazon.com").path("/").name("map-md").value(mapMdEncoded).secure().expiresAt(expiry).build()
+        cookieStore["amazon.com:sid"]    = Cookie.Builder().domain("amazon.com").path("/").name("sid").value("").secure().expiresAt(expiry).build()
     }
 
     private fun followForAuthCode(startUrl: String, host: String): Result {

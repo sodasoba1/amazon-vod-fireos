@@ -51,7 +51,10 @@ class AmazonAuthService(private val tokenFile: File) {
     fun setSiDomain(domain: String) { siDomain = domain }
 
     // Base HTTP client (no interceptor) used only for refresh calls
-    private val refreshClient = OkHttpClient.Builder().build()
+    private val refreshClient = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
 
     private fun loadToken(): TokenData {
         return gson.fromJson(tokenFile.readText(), TokenData::class.java)

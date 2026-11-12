@@ -67,6 +67,8 @@ class LoginActivity : AppCompatActivity() {
         etEmail       = findViewById(R.id.et_email)
         etPassword    = findViewById(R.id.et_password)
         etMfa         = findViewById(R.id.et_mfa)
+        etPassword.isSaveEnabled = false
+        etMfa.isSaveEnabled = false
         mfaContainer  = findViewById(R.id.mfa_container)
         cbShowPassword = findViewById(R.id.cb_show_password)
         btnLogin      = findViewById(R.id.btn_login)
@@ -116,7 +118,10 @@ class LoginActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 Log.w(TAG, "Login error: ${e.message}", e)
                 showStatus("Login error: ${e.message}")
-            } finally { showLoading(false) }
+            } finally {
+                etPassword.setText("")
+                showLoading(false)
+            }
         }
     }
 
@@ -129,7 +134,10 @@ class LoginActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 Log.w(TAG, "MFA error: ${e.message}", e)
                 showStatus("MFA error: ${e.message}")
-            } finally { showLoading(false) }
+            } finally {
+                etMfa.setText("")
+                showLoading(false)
+            }
         }
     }
 
