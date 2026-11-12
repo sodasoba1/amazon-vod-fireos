@@ -105,7 +105,7 @@ Selecting any movie or series opens a full detail screen before playback:
 
 ### CI/CD
 
-- **GitHub Actions** — builds on version tags (`v*`), PRs to `main`, and manual dispatch; date-based versioning (`YYYY.MM.DD.N`); automatic signed APK releases
+- **GitHub Actions** — pull requests build an unsigned debug APK; version tags (`v*`) produce signed releases using secrets from a protected GitHub Environment
 
 ## Architecture
 
@@ -257,15 +257,19 @@ Output: `app/build/outputs/apk/debug/app-debug.apk`
 
 ### Release build
 
+Release builds require all four signing environment variables. The keystore must be stored outside the repository.
+
 ```bash
+export RELEASE_STORE_FILE="$HOME/.android/amazon-vod-release.jks"
+export RELEASE_STORE_PASSWORD="your-keystore-password"
+export RELEASE_KEY_ALIAS="your-key-alias"
+export RELEASE_KEY_PASSWORD="your-key-password"
 ./gradlew assembleRelease
 ```
 
-Output: `app/build/outputs/apk/release/app-release.apk`
+On Windows PowerShell, set the equivalent environment variables with `$env:NAME="value"`.
 
-> Signing requires `release.keystore` at the repo root and the four env vars
-> `RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`
-> (set automatically by CI; for local builds export them manually or the APK will be unsigned).
+If signing variables or the keystore file are missing, the release build fails rather than silently producing an unsigned APK. Debug builds do not require signing secrets.
 
 ### Versioned build (CI style)
 
@@ -310,7 +314,18 @@ The app compares the file's mtime against `logged_out_at` — if the file is new
 
 ## CI/CD
 
-GitHub Actions builds APKs on version tags (`v*`), pull requests to `main`, and manual dispatch. Versioning uses the date format `YYYY.MM.DD.N` (e.g., `2026.02.27.5`).
+GitHub Actions builds an unsigned debug APK for pull requests to `main`. A pushed version tag (`v*`) triggers a signed release build. The signing job uses the GitHub Environment named `release`; configure that environment with required reviewers or other deployment protection before adding its secrets.
+
+Create these **environment secrets** under Settings → Environments → `release` (do not add them as ordinary repository secrets):
+
+| Secret | Description |
+|--------|-------------|
+| `RELEASE_KEYSTORE_BASE64` | Base64-encoded contents of your private JKS/keystore file |
+| `RELEASE_STORE_PASSWORD` | Keystore password |
+| `RELEASE_KEY_ALIAS` | Alias of the signing key |
+| `RELEASE_KEY_PASSWORD` | Private-key password |
+
+Generate the Base64 value locally and paste it directly into the GitHub Environment secret. Do not commit the keystore, place it in the repository, or paste its contents/passwords into issues, pull requests, or chat. See the signing setup steps in the repository's release documentation if needed.
 
 [View recent builds](https://github.com/ScriptGod1337/amazon-vod-android/actions) | [Download latest release](https://github.com/ScriptGod1337/amazon-vod-android/releases/latest)
 
@@ -323,13 +338,14 @@ GitHub Actions builds APKs on version tags (`v*`), pull requests to `main`, and 
 | `RELEASE_KEY_ALIAS` | Key alias |
 | `RELEASE_KEY_PASSWORD` | Key password |
 
-Generate the keystore secret:
+For local Base64 encoding:
+
 ```bash
-base64 -w0 release.keystore | pbcopy  # macOS
-base64 -w0 release.keystore           # Linux (pipe to clipboard)
+# Git Bash (Windows) / Linux
+base64 -w 0 "$HOME/.android/amazon-vod-release.jks"
 ```
 
-Pushing a version tag (e.g., `git tag v2026.02.28.1 && git push --tags`) creates a GitHub Release with the signed APK attached.
+Pushing a version tag (e.g., `git tag v2026.11.12.1 && git push origin v2026.11.12.1`) creates a GitHub Release with the signed APK attached. Protect release tags/creation permissions so unreviewed code cannot trigger a signing run.
 
 ## Emulator notes
 
