@@ -300,20 +300,17 @@ adb shell am start -n com.scriptgod.fireos.avod/.ui.LoginActivity
 ### In-app login (recommended)
 Launch the app and sign in with your Amazon email, password, and verification code. The app performs PKCE OAuth authentication and registers the device with Amazon. Tokens are saved to the app's internal storage.
 
-### Development token (debugging)
-For development, you can pre-push a `.device-token` file:
-```bash
-adb push .device-token /data/local/tmp/.device-token
-adb shell chmod 644 /data/local/tmp/.device-token
-```
-The app auto-detects an existing token and skips the login screen. Generate the token with `dev/register_device.py`.
+### Token storage
 
-**After signing out:** The app records a `logged_out_at` timestamp and skips the legacy token that was present at sign-out time. To resume development without logging in again, push a fresh token and `touch` it so its mtime is newer than the logout timestamp (`adb push` preserves the host file's mtime, so the touch is required):
+Authentication tokens are stored only in the app's private internal storage. The app no longer reads from or writes to shared paths such as `/data/local/tmp`.
+
+**Migration from older builds:** if you previously used the legacy token path, remove the old plaintext copy from the Fire TV after confirming you can sign in through the app:
+
 ```bash
-adb push .device-token /data/local/tmp/.device-token
-adb shell touch /data/local/tmp/.device-token
+adb shell rm -f /data/local/tmp/.device-token
 ```
-The app compares the file's mtime against `logged_out_at` — if the file is newer it accepts the token and clears the flag automatically.
+
+Do not share or commit generated `.device-token` files; they contain reusable account tokens.
 
 ## CI/CD
 

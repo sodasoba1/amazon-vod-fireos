@@ -67,6 +67,8 @@ class LoginActivity : AppCompatActivity() {
         etEmail       = findViewById(R.id.et_email)
         etPassword    = findViewById(R.id.et_password)
         etMfa         = findViewById(R.id.et_mfa)
+        etPassword.isSaveEnabled = false
+        etMfa.isSaveEnabled = false
         mfaContainer  = findViewById(R.id.mfa_container)
         cbShowPassword = findViewById(R.id.cb_show_password)
         btnLogin      = findViewById(R.id.btn_login)
@@ -114,9 +116,12 @@ class LoginActivity : AppCompatActivity() {
                 val result = withContext(Dispatchers.IO) { loginFlow.performFullLogin(email, password) }
                 handleResult(result)
             } catch (e: Exception) {
-                Log.w(TAG, "Login error: ${e.message}", e)
+                Log.w(TAG, "Login error (${e.javaClass.simpleName})")
                 showStatus("Login error: ${e.message}")
-            } finally { showLoading(false) }
+            } finally {
+                etPassword.setText("")
+                showLoading(false)
+            }
         }
     }
 
@@ -127,9 +132,12 @@ class LoginActivity : AppCompatActivity() {
                 val result = withContext(Dispatchers.IO) { loginFlow.submitMfaCode(mfaCode) }
                 handleResult(result)
             } catch (e: Exception) {
-                Log.w(TAG, "MFA error: ${e.message}", e)
+                Log.w(TAG, "MFA error (${e.javaClass.simpleName})")
                 showStatus("MFA error: ${e.message}")
-            } finally { showLoading(false) }
+            } finally {
+                etMfa.setText("")
+                showLoading(false)
+            }
         }
     }
 
@@ -168,7 +176,7 @@ class LoginActivity : AppCompatActivity() {
                 etPassword.setText("")
                 launchMain()
             } catch (e: Exception) {
-                Log.w(TAG, "Registration failed: ${e.message}", e)
+                Log.w(TAG, "Registration failed (${e.javaClass.simpleName})")
                 showStatus("Registration failed: ${e.message}")
             } finally { showLoading(false) }
         }
@@ -197,7 +205,6 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun launchMain() {
-        tokenStore.clearLogoutTimestamp()
         startActivity(Intent(this, MainActivity::class.java))
         finish()
     }

@@ -52,8 +52,7 @@ class AboutActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 findViewById<TextView>(R.id.tv_device_id).text = "error reading token"
             }
-            val location = if (tokenFile.path.startsWith(filesDir.path)) "internal storage" else "legacy (/data/local/tmp)"
-            findViewById<TextView>(R.id.tv_token_location).text = location
+            findViewById<TextView>(R.id.tv_token_location).text = "app-private storage"
             findViewById<TextView>(R.id.tv_token_chip).text = "Token active"
             findViewById<TextView>(R.id.tv_token_status).text = "A device token is present and the app can launch directly into the catalog."
         } else {
@@ -225,13 +224,8 @@ class AboutActivity : AppCompatActivity() {
 
     private fun performLogout() {
         ProgressRepository.init(applicationContext)
-        // Delete internal token
+        // Delete the app-private token.
         File(filesDir, ".device-token").delete()
-        // Delete legacy token if present (may silently fail — app lacks write permission on /data/local/tmp)
-        File("/data/local/tmp/.device-token").delete()
-        // Record logout time so findTokenFile() skips the legacy token that was present at
-        // logout, but still accepts a fresh debug token pushed via adb after this timestamp.
-        getSharedPreferences("auth", MODE_PRIVATE).edit().putLong("logged_out_at", System.currentTimeMillis()).apply()
         // Clear local progress cache
         ProgressRepository.clear()
 
