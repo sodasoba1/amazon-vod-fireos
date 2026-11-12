@@ -328,7 +328,26 @@ Create these **environment secrets** under Settings → Environments → `releas
 | `RELEASE_KEY_ALIAS` | Alias of the signing key |
 | `RELEASE_KEY_PASSWORD` | Private-key password |
 
-Generate the Base64 value locally and paste it directly into the GitHub Environment secret. Do not commit the keystore, place it in the repository, or paste its contents/passwords into issues, pull requests, or chat. See the signing setup steps in the repository's release documentation if needed.
+Generate a new key on your own machine (Git Bash on Windows):
+
+```bash
+mkdir -p "$HOME/.android"
+keytool -genkeypair -v \
+  -keystore "$HOME/.android/amazon-vod-release.jks" \
+  -storetype JKS \
+  -alias amazonvod \
+  -keyalg RSA -keysize 2048 -validity 10000
+
+# Verify the new certificate; keytool prompts for the keystore password
+keytool -list -v \
+  -keystore "$HOME/.android/amazon-vod-release.jks" \
+  -alias amazonvod
+
+# Copy the Base64 keystore directly to the Windows clipboard
+base64 -w 0 "$HOME/.android/amazon-vod-release.jks" | clip.exe
+```
+
+The key-generation command prompts for passwords; do not put passwords on the command line. Store the keystore and both passwords in separate secure backups. Paste the clipboard contents into `RELEASE_KEYSTORE_BASE64`, then add the prompted passwords and alias (`amazonvod`) as the other three **environment secrets**. Do not commit the keystore, place it in the repository, or paste its contents/passwords into issues, pull requests, or chat.
 
 [View recent builds](https://github.com/sodasoba1/amazon-vod-fireos/actions) | [Download latest release](https://github.com/sodasoba1/amazon-vod-fireos/releases/latest)
 
