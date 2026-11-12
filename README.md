@@ -285,8 +285,11 @@ Debug builds do not require signing secrets. The CI release pipeline explicitly 
 # Connect to Fire TV
 adb connect <device-ip>:5555
 
-# Install
-adb install -r app/build/outputs/apk/release/app-release.apk
+# Install a locally built debug APK
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+# Or install the signed APK downloaded from this repository's GitHub Release
+adb install -r FireOS-AVOD-<version>.apk
 
 # Launch
 adb shell am start -n com.scriptgod.fireos.avod/.ui.LoginActivity
@@ -327,7 +330,7 @@ Create these **environment secrets** under Settings → Environments → `releas
 
 Generate the Base64 value locally and paste it directly into the GitHub Environment secret. Do not commit the keystore, place it in the repository, or paste its contents/passwords into issues, pull requests, or chat. See the signing setup steps in the repository's release documentation if needed.
 
-[View recent builds](https://github.com/ScriptGod1337/amazon-vod-android/actions) | [Download latest release](https://github.com/ScriptGod1337/amazon-vod-android/releases/latest)
+[View recent builds](https://github.com/sodasoba1/amazon-vod-fireos/actions) | [Download latest release](https://github.com/sodasoba1/amazon-vod-fireos/releases/latest)
 
 ## Emulator notes
 
