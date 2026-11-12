@@ -257,7 +257,7 @@ Output: `app/build/outputs/apk/debug/app-debug.apk`
 
 ### Release build
 
-Release builds require all four signing environment variables. The keystore must be stored outside the repository.
+A local release build is unsigned unless all four signing environment variables are set. The keystore must be stored outside the repository. GitHub Actions builds the APK without signing secrets, then signs it in a separate protected job.
 
 ```bash
 export RELEASE_STORE_FILE="$HOME/.android/amazon-vod-release.jks"
@@ -269,7 +269,7 @@ export RELEASE_KEY_PASSWORD="your-key-password"
 
 On Windows PowerShell, set the equivalent environment variables with `$env:NAME="value"`.
 
-If signing variables or the keystore file are missing, the release build fails rather than silently producing an unsigned APK. Debug builds do not require signing secrets.
+Debug builds do not require signing secrets. The CI release pipeline explicitly signs and verifies the APK after the build job; the signing job does not check out or execute repository build scripts.
 
 ### Versioned build (CI style)
 
@@ -314,7 +314,7 @@ The app compares the file's mtime against `logged_out_at` — if the file is new
 
 ## CI/CD
 
-GitHub Actions builds an unsigned debug APK for pull requests to `main`. A pushed version tag (`v*`) triggers a signed release build. The signing job uses the GitHub Environment named `release`; configure that environment with required reviewers or other deployment protection before adding its secrets.
+GitHub Actions builds an unsigned debug APK for pull requests to `main`. A pushed version tag (`v*`) triggers an unsigned build followed by a separate signing job. The signing job does not check out the repository or run Gradle. It uses the GitHub Environment named `release`; configure that environment with required reviewers or other deployment protection before adding its secrets.
 
 Create these **environment secrets** under Settings → Environments → `release` (do not add them as ordinary repository secrets):
 
