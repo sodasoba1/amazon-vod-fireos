@@ -340,7 +340,12 @@ class PlayerActivity : AppCompatActivity() {
             tvError.visibility != View.VISIBLE && ::orchestrator.isInitialized
         ) {
             if (!playerView.isControllerFullyVisible) {
-                showControllerAndFocus(event.keyCode)
+                if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER) {
+                    togglePlaybackFromRemote()
+                    playerView.postDelayed({ focusPlaybackControls(preferSeekBar = false) }, 120L)
+                } else {
+                    showControllerAndFocus(event.keyCode)
+                }
                 return true
             }
 
