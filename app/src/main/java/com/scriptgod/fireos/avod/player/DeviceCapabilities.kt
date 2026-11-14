@@ -46,6 +46,12 @@ object DeviceCapabilities {
         }
     }
 
+    /** Returns only the HDR formats supported by the display and accepted by Amazon's request API. */
+    fun supportedHdrFormats(hdrTypes: IntArray): List<String> = buildList {
+        if (android.view.Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION in hdrTypes) add("DolbyVision")
+        if (android.view.Display.HdrCapabilities.HDR_TYPE_HDR10 in hdrTypes) add("Hdr10")
+    }
+
     /** Returns true if this device has any H265/HEVC video decoder. */
     fun deviceSupportsH265(): Boolean =
         MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.any { info ->

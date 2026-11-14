@@ -95,6 +95,7 @@ Implement token refresh as an OkHttp `Interceptor`:
 
 Key findings during implementation:
 - `deviceTypeID` in the request MUST match the registered device type (our `A43PXU4ZN2AL1`, not Kodi's `A28RQHJKHM2A2W`)
+- `gascEnabled` is derived from `defaultVideoWebsite`: true when it contains `primevideo`, false for Amazon retail sites; use the same value for manifest and licence requests
 - `supportedLocales` must include the user's locale (send 18 locales like Kodi)
 - `homeRegion` is under `customerConfig`, not `territoryConfig`
 - `uxLocale` can return error strings — validate with regex before using
@@ -263,7 +264,7 @@ Three quality presets, stored in SharedPreferences `"settings"` key `"video_qual
 |---|---|---|---|---|
 | `"HD"` (default) | `HD` | `H264` | `None` | **720p H264 SDR** |
 | `"HD_H265"` | `HD` | `H264,H265` | `None` | **720p H265 SDR** — same resolution as HD H264; H265 gives slightly better compression at 720p; no HDR display needed |
-| `"UHD_HDR"` | `UHD` | `H264,H265` | `Hdr10,DolbyVision` | **4K H265 HDR** — requires H265 decoder + HDR display |
+| `"UHD_HDR"` | `UHD` | `H264,H265` | Display-supported `DolbyVision` / `Hdr10`, or `None` | **UHD request** — HDR formats are limited to the connected display; the manifest may still be lower resolution |
 
 **Key finding (empirical)**: Amazon's `HD` quality tier was observed at **720p** for both
 H264 and H265 SDR on two test titles. This is a CDN-side policy — the APK does not
@@ -287,6 +288,8 @@ but is based on observation, not APK proof.
 **Codec param format**: `H264,H265` comma-separated — Kodi does `'H264' + (',H265' if _s.use_h265 else '')`.
 
 **Fallback rule**: If `UHD_HDR` is selected but `MediaCodecList` finds no `video/hevc` hardware decoder on the device, the app automatically falls back to `HD_H265` at playback time. A Toast informs the user.
+
+**HDR negotiation**: UHD is independent of HDR output. The app sends only `DolbyVision` and/or `Hdr10` when the connected display reports those formats; otherwise it requests UHD with `deviceHdrFormatsOverride=None`. The app does not downgrade to HD solely because HDR is unavailable. UHD is a request tier, not a guarantee of 2160p.
 
 **Where it applies**: `getPlaybackInfo()` and `buildLicenseUrl()` in `AmazonApiService` — the license server validates quality claims, so both the manifest request and the license request must use identical quality params.
 

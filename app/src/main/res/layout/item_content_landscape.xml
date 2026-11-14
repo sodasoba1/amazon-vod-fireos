@@ -20,6 +20,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@drawable/card_surface_background_landscape"
+        android:clipToOutline="true"
         android:orientation="vertical">
 
         <FrameLayout

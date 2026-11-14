@@ -76,6 +76,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
     @Volatile private var marketplaceId: String = DEFAULT_MARKETPLACE_ID
     @Volatile private var sidomain: String = "amazon.com"
     @Volatile private var lang: String = "en_US"
+    @Volatile private var usePrimeVideo: Boolean = false
     @Volatile private var territoryDetected: Boolean = false
 
     /**
@@ -109,6 +110,9 @@ class AmazonApiService(private val authService: AmazonAuthService) {
                     ?.getAsJsonPrimitive("avMarketplace")?.asString
                 val defaultVideoWebsite = territoryConfig
                     ?.getAsJsonPrimitive("defaultVideoWebsite")?.asString
+                if (!defaultVideoWebsite.isNullOrBlank()) {
+                    usePrimeVideo = defaultVideoWebsite.contains("primevideo", ignoreCase = true)
+                }
                 // homeRegion is under customerConfig (Kodi login.py:70)
                 val homeRegion = customerConfig
                     ?.getAsJsonPrimitive("homeRegion")?.asString
@@ -138,6 +142,11 @@ class AmazonApiService(private val authService: AmazonAuthService) {
                     sidomain = dynamic.sidomain
                 }
 
+                // If Amazon omitted defaultVideoWebsite, derive the service from the resolved ATV host.
+                if (defaultVideoWebsite.isNullOrBlank()) {
+                    usePrimeVideo = atvUrl.contains("primevideo", ignoreCase = true)
+                }
+
                 // Override lang from uxLocale if it looks like a valid locale (xx_XX)
                 if (!uxLocale.isNullOrEmpty() && uxLocale.matches(Regex("[a-z]{2}_[A-Z]{2}"))) {
                     lang = uxLocale
@@ -147,7 +156,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
             Log.w(TAG, "Territory detection failed: ${e.message}")
         }
         authService.setSiDomain(sidomain)
-        Log.w(TAG, "Territory: atvUrl=$atvUrl marketplace=$marketplaceId sidomain=$sidomain lang=$lang")
+        Log.w(TAG, "Territory: atvUrl=$atvUrl marketplace=$marketplaceId sidomain=$sidomain lang=$lang gascEnabled=$usePrimeVideo")
         territoryDetected = true
     }
 
@@ -959,7 +968,8 @@ class AmazonApiService(private val authService: AmazonAuthService) {
             append("&marketplaceID=").append(marketplaceId)
             append("&format=json")
             append("&version=2")
-            append("&gascEnabled=true")
+            append("&gascEnabled=").append(usePrimeVideo)
+            append("&subtitleFormat=TTMLv2")
             append("&resourceUsage=ImmediateConsumption")
             append("&consumptionType=Streaming")
             append("&deviceDrmOverride=CENC")
@@ -983,6 +993,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
 
         val url = "$atvUrl/cdp/catalog/GetPlaybackResources?$params"
         Log.i(TAG, "GetPlaybackResources: asin=$asin materialType=$videoMaterialType")
+        Log.i(TAG, "Playback request settings: gascEnabled=$usePrimeVideo quality=${quality.videoQuality} codec=${quality.codecOverride} hdr=${quality.hdrOverride} drm=CENC streaming=DASH")
 
         val request = Request.Builder()
             .url(url)
@@ -1201,7 +1212,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
                "&marketplaceID=$marketplaceId" +
                "&format=json" +
                "&version=2" +
-               "&gascEnabled=true" +
+               "&gascEnabled=$usePrimeVideo" +
                "&resourceUsage=ImmediateConsumption" +
                "&consumptionType=Streaming" +
                "&deviceDrmOverride=CENC" +

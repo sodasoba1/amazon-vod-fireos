@@ -59,8 +59,8 @@ class PlaybackOrchestrator(
     private val authService: AmazonAuthService,
     private val apiService: AmazonApiService,
     private val scope: CoroutineScope,
-    /** Checks whether the connected display reports HDR support (uses Activity.windowManager). */
-    private val displaySupportsHdr: () -> Boolean,
+    /** Returns the connected display's supported Amazon HDR formats, or "None". */
+    private val supportedHdrFormats: () -> String,
     private val callbacks: Callbacks
 ) {
     interface Callbacks {
@@ -274,10 +274,7 @@ class PlaybackOrchestrator(
     }
 
     fun stopReportingIfActive() {
-        if (streamReporter.streamReportingStarted) {
-            stopStreamReporting()
-            streamReporter.streamReportingStarted = false
-        }
+        if (streamReporter.streamReportingStarted) stopStreamReporting()
     }
 
     fun release() {
@@ -329,15 +326,17 @@ class PlaybackOrchestrator(
         val pref = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
             .getString(PlaybackQuality.PREF_KEY, null)
         val requested = PlaybackQuality.fromPrefValue(pref)
-        if (requested == PlaybackQuality.UHD_HDR) {
+        if (requested.videoQuality == "UHD") {
             if (!DeviceCapabilities.deviceSupportsH265()) {
                 Toast.makeText(context, "H265 not supported — using HD H264", Toast.LENGTH_LONG).show()
                 return PlaybackQuality.HD
             }
-            if (!displaySupportsHdr()) {
-                Toast.makeText(context, "Display does not support HDR — using HD H264", Toast.LENGTH_LONG).show()
-                return PlaybackQuality.HD
+            val hdrOverride = supportedHdrFormats().ifBlank { "None" }
+            if (hdrOverride == "None") {
+                Log.i(TAG, "Display reports no HDR10/Dolby Vision output; requesting UHD with HDR disabled")
+                return PlaybackQuality.UHD_SDR
             }
+            return PlaybackQuality.UHD_HDR.copy(hdrOverride = hdrOverride)
         }
         if (requested == PlaybackQuality.HD_H265 && !DeviceCapabilities.deviceSupportsH265()) {
             Toast.makeText(context, "H265 not supported — using HD H264", Toast.LENGTH_LONG).show()
@@ -563,6 +562,12 @@ class PlaybackOrchestrator(
         player = null
     }
 
+    private fun startStreamReportingIfNeeded() {
+        if (streamReporter.streamReportingStarted) return
+        streamReporter.streamReportingStarted = true
+        startStreamReporting()
+    }
+
     private fun startStreamReporting() {
         streamReporter.startStreamReporting(
             positionProvider = { player?.currentPosition ?: 0L },
@@ -580,11 +585,13 @@ class PlaybackOrchestrator(
     }
 
     private fun stopStreamReporting() {
+        if (!streamReporter.streamReportingStarted) return
         streamReporter.stopStreamReporting(
             positionProvider = { player?.currentPosition ?: 0L },
             currentAsinProvider = { currentAsin },
             onStopResumeProgressUpdates = { stopResumeProgressUpdates() }
         )
+        streamReporter.streamReportingStarted = false
     }
 
     private fun sendProgressEvent(event: String) {
@@ -664,10 +671,7 @@ class PlaybackOrchestrator(
                     Log.w(TAG, "STATE_READY pos=${player?.currentPosition}ms")
                     if (!seekResyncPending) callbacks.hideBuffering()
                     callbacks.onPlaybackLabelsChanged()
-                    if (!streamReporter.streamReportingStarted) {
-                        streamReporter.streamReportingStarted = true
-                        startStreamReporting()
-                    }
+                    startStreamReportingIfNeeded()
                 }
                 Player.STATE_ENDED -> {
                     persistPlaybackProgress(force = true)
@@ -685,6 +689,12 @@ class PlaybackOrchestrator(
             callbacks.onKeepScreenOn(isPlaying || seekResyncPending)
             if (isPlaying) stallWatchdog.start { player }
             else if (player?.playWhenReady == false) stallWatchdog.stop()
+            if (isPlaying && player?.playbackState == Player.STATE_READY &&
+                !streamReporter.streamReportingStarted
+            ) {
+                startStreamReportingIfNeeded()
+                return
+            }
             if (!streamReporter.streamReportingStarted) return
             if (isPlaying) { startHeartbeat(); startResumeProgressUpdates() }
             if (!isPlaying && player?.playbackState == Player.STATE_READY) {

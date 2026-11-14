@@ -23,6 +23,7 @@ import com.scriptgod.fireos.avod.auth.TokenStore
 import com.scriptgod.fireos.avod.data.ProgressRepository
 import com.scriptgod.fireos.avod.model.PlaybackQuality
 import com.scriptgod.fireos.avod.player.BifThumbnailProvider
+import com.scriptgod.fireos.avod.player.DeviceCapabilities
 import com.scriptgod.fireos.avod.player.PlaybackOrchestrator
 import com.scriptgod.fireos.avod.player.SeekPreviewController
 import com.scriptgod.fireos.avod.player.TrackMenuController
@@ -59,7 +60,7 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var tvPlaybackHint: TextView
     private lateinit var btnAudio: Button
     private lateinit var btnSubtitle: Button
-    private var controllerView: View? = null
+    private var resumePlaybackAfterPause = false
 
     // --- Controllers ---
     private lateinit var orchestrator: PlaybackOrchestrator
@@ -106,11 +107,15 @@ class PlayerActivity : AppCompatActivity() {
         tvPlaybackHint.text  = "Press MENU for tracks. Press Back to exit."
         tvVideoFormat.visibility = View.GONE
         playerView.keepScreenOn = false
+        playerView.isFocusable = true
+        playerView.isFocusableInTouchMode = true
+        playerView.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+        playerView.setControllerShowTimeoutMs(6_000)
         playerView.setShowSubtitleButton(false)
         playerView.post {
             playerView.findViewById<View>(androidx.media3.ui.R.id.exo_subtitle)?.visibility = View.GONE
             playerView.findViewById<View>(androidx.media3.ui.R.id.exo_settings)?.visibility = View.GONE
-            controllerView = playerView.findViewById(androidx.media3.ui.R.id.exo_controller)
+            playerView.requestFocus()
         }
         applyDeviceOverlayTuning()
 
@@ -128,7 +133,7 @@ class PlayerActivity : AppCompatActivity() {
             authService      = authService,
             apiService       = apiService,
             scope            = scope,
-            displaySupportsHdr = ::displaySupportsHdr,
+            supportedHdrFormats = ::supportedHdrFormats,
             callbacks        = orchestratorCallbacks
         )
         orchestrator.currentAsin       = asin
@@ -169,7 +174,12 @@ class PlayerActivity : AppCompatActivity() {
             androidx.media3.ui.PlayerView.ControllerVisibilityListener { visibility ->
                 val visible = visibility == View.VISIBLE
                 trackMenu.onControllerVisibilityChanged(visible)
-                if (!visible) seekPreview.hideThumbnail()
+                if (!visible) {
+                    seekPreview.hideThumbnail()
+                    playerView.post {
+                        if (trackButtons.visibility != View.VISIBLE) playerView.requestFocus()
+                    }
+                }
             }
         )
 
@@ -184,9 +194,12 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        if (::orchestrator.isInitialized) {
+            resumePlaybackAfterPause = orchestrator.player?.playWhenReady == true
+            orchestrator.persistPlaybackProgress(force = true)
+            orchestrator.player?.pause()
+        }
         super.onPause()
-        orchestrator.persistPlaybackProgress(force = true)
-        orchestrator.player?.pause()
     }
 
     override fun onResume() {
@@ -200,24 +213,32 @@ class PlayerActivity : AppCompatActivity() {
             or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
             or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
         )
-        orchestrator.player?.play()
+        if (::orchestrator.isInitialized && resumePlaybackAfterPause) {
+            resumePlaybackAfterPause = false
+            orchestrator.player?.play()
+        }
+        if (::playerView.isInitialized) playerView.post {
+            if (!playerView.isControllerFullyVisible) playerView.requestFocus()
+        }
     }
 
     override fun onStop() {
         super.onStop()
-        orchestrator.persistPlaybackProgress(force = true)
-        orchestrator.stopReportingIfActive()
+        if (::orchestrator.isInitialized) {
+            orchestrator.persistPlaybackProgress(force = true)
+            orchestrator.stopReportingIfActive()
+            orchestrator.player?.pause()
+        }
         updatePlaybackWakeState(false)
-        orchestrator.player?.pause()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         scopeJob.cancel()
         noticeHandler.removeCallbacksAndMessages(null)
-        trackMenu.release()
-        seekPreview.cancelPendingHide()
-        orchestrator.release()
+        if (::trackMenu.isInitialized) trackMenu.release()
+        if (::seekPreview.isInitialized) seekPreview.cancelPendingHide()
+        if (::orchestrator.isInitialized) orchestrator.release()
         updatePlaybackWakeState(false)
     }
 
@@ -225,33 +246,129 @@ class PlayerActivity : AppCompatActivity() {
     // Input
     // -------------------------------------------------------------------------
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val seekBar = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)
-        if (event.action == KeyEvent.ACTION_DOWN &&
-            (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) &&
-            playerView.isControllerFullyVisible &&
-            currentFocus == seekBar
-        ) {
-            seekPreview.handleDpadSeek(event.keyCode, orchestrator.player)
-            return super.dispatchKeyEvent(event)
+    private fun isMediaKey(keyCode: Int): Boolean = keyCode in setOf(
+        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+        KeyEvent.KEYCODE_MEDIA_PLAY,
+        KeyEvent.KEYCODE_MEDIA_PAUSE,
+        KeyEvent.KEYCODE_MEDIA_REWIND,
+        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+        KeyEvent.KEYCODE_HEADSETHOOK
+    )
+
+    private fun isDpadKey(keyCode: Int): Boolean = keyCode in setOf(
+        KeyEvent.KEYCODE_DPAD_UP,
+        KeyEvent.KEYCODE_DPAD_DOWN,
+        KeyEvent.KEYCODE_DPAD_LEFT,
+        KeyEvent.KEYCODE_DPAD_RIGHT,
+        KeyEvent.KEYCODE_DPAD_CENTER,
+        KeyEvent.KEYCODE_ENTER
+    )
+
+    private fun focusPlaybackControls(preferSeekBar: Boolean) {
+        val ids = if (preferSeekBar) {
+            listOf(
+                androidx.media3.ui.R.id.exo_progress,
+                androidx.media3.ui.R.id.exo_play_pause,
+                androidx.media3.ui.R.id.exo_rew,
+                androidx.media3.ui.R.id.exo_ffwd
+            )
+        } else {
+            listOf(
+                androidx.media3.ui.R.id.exo_play_pause,
+                androidx.media3.ui.R.id.exo_progress,
+                androidx.media3.ui.R.id.exo_rew,
+                androidx.media3.ui.R.id.exo_ffwd
+            )
         }
-        return super.dispatchKeyEvent(event)
+        for (id in ids) {
+            val candidate = playerView.findViewById<View>(id) ?: continue
+            if (candidate.isShown && candidate.isFocusable && candidate.requestFocus()) return
+        }
+        playerView.requestFocus()
     }
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_MENU) {
-            if (playerView.isControllerFullyVisible) {
-                trackButtons.clearFocus(); playerView.hideController()
-            } else {
-                playerView.showController()
-                btnAudio.postDelayed({
-                    if (playerView.isControllerFullyVisible && trackButtons.visibility == View.VISIBLE)
-                        btnAudio.requestFocus()
-                }, 120L)
-            }
+    private fun showControllerAndFocus(keyCode: Int) {
+        playerView.showController()
+        val preferSeekBar = keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
+            keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
+        playerView.postDelayed({ focusPlaybackControls(preferSeekBar) }, 120L)
+    }
+
+    private fun togglePlaybackFromRemote() {
+        val activePlayer = if (::orchestrator.isInitialized) orchestrator.player else null
+        if (activePlayer != null) {
+            if (activePlayer.playWhenReady) activePlayer.pause() else activePlayer.play()
+            playerView.showController()
+        }
+    }
+
+    private fun toggleTrackPanel() {
+        if (playerView.isControllerFullyVisible) {
+            trackButtons.clearFocus()
+            playerView.hideController()
+            playerView.post { playerView.requestFocus() }
+        } else {
+            playerView.showController()
+            btnAudio.postDelayed({
+                if (playerView.isControllerFullyVisible && trackButtons.visibility == View.VISIBLE) {
+                    btnAudio.requestFocus()
+                }
+            }, 120L)
+        }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_MENU) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) toggleTrackPanel()
             return true
         }
-        return super.onKeyDown(keyCode, event)
+
+        if (::playerView.isInitialized && isMediaKey(event.keyCode)) {
+            val handled = playerView.dispatchMediaKeyEvent(event)
+            if (handled) {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    playerView.showController()
+                    val seekKey = event.keyCode == KeyEvent.KEYCODE_MEDIA_REWIND ||
+                        event.keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
+                    playerView.post { focusPlaybackControls(seekKey) }
+                }
+                return true
+            }
+        }
+
+        if (::playerView.isInitialized && event.action == KeyEvent.ACTION_DOWN && isDpadKey(event.keyCode) &&
+            tvError.visibility != View.VISIBLE && ::orchestrator.isInitialized
+        ) {
+            if (!playerView.isControllerFullyVisible) {
+                showControllerAndFocus(event.keyCode)
+                return true
+            }
+
+            val seekBar = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)
+            if (currentFocus == null || currentFocus == playerView) {
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                        togglePlaybackFromRemote()
+                        return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        focusPlaybackControls(preferSeekBar = true)
+                        return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        focusPlaybackControls(preferSeekBar = false)
+                        return true
+                    }
+                }
+            }
+
+            if (currentFocus == seekBar &&
+                (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
+            ) {
+                seekPreview.handleDpadSeek(event.keyCode, orchestrator.player)
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     // -------------------------------------------------------------------------
@@ -265,6 +382,7 @@ class PlayerActivity : AppCompatActivity() {
             playerView.post {
                 playerView.findViewById<View>(androidx.media3.ui.R.id.exo_subtitle)?.visibility = View.GONE
                 playerView.findViewById<View>(androidx.media3.ui.R.id.exo_settings)?.visibility = View.GONE
+                if (!playerView.isControllerFullyVisible) playerView.requestFocus()
             }
         }
         override fun showBuffering() { progressBar.visibility = View.VISIBLE }
@@ -312,12 +430,15 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun updatePlaybackStatus(materialType: String, quality: PlaybackQuality) {
         val materialLabel = if (materialType == "Trailer") "Trailer" else "Playback"
-        val qualityLabel = when (quality) {
-            PlaybackQuality.UHD_HDR -> "4K HDR preset"
-            PlaybackQuality.HD_H265 -> "HD H265 preset"
-            PlaybackQuality.HD      -> "HD H264 preset"
-            PlaybackQuality.SD      -> "SD (Widevine L3)"
-            else                    -> "HD H264 preset"
+        val qualityLabel = when {
+            quality.videoQuality == "UHD" && quality.hdrOverride == "None" ->
+                "4K UHD · SDR request"
+            quality.videoQuality == "UHD" ->
+                "4K UHD · ${quality.hdrOverride} request"
+            quality == PlaybackQuality.HD_H265 -> "HD H265 preset"
+            quality == PlaybackQuality.HD -> "HD H264 preset"
+            quality == PlaybackQuality.SD -> "SD (Widevine L3)"
+            else -> "HD H264 preset"
         }
         tvPlaybackStatus.text = "$materialLabel  ·  $qualityLabel"
     }
@@ -337,11 +458,14 @@ class PlayerActivity : AppCompatActivity() {
         tvError.visibility = View.VISIBLE
     }
 
-    /** Returns true if the connected display reports HDR support via HDMI EDID. */
+    /** Returns only the HDR formats Amazon accepts and the connected display reports. */
     @Suppress("DEPRECATION")
-    private fun displaySupportsHdr(): Boolean {
-        val caps = windowManager.defaultDisplay.hdrCapabilities ?: return false
-        return caps.supportedHdrTypes.isNotEmpty()
+    private fun supportedHdrFormats(): String {
+        val hdrTypes = windowManager.defaultDisplay.hdrCapabilities?.supportedHdrTypes ?: intArrayOf()
+        return DeviceCapabilities.supportedHdrFormats(hdrTypes)
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(",")
+            ?: "None"
     }
 
     private fun applyDeviceOverlayTuning() {

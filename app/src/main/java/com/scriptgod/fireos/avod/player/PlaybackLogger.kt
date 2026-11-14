@@ -27,7 +27,7 @@ object PlaybackLogger {
                         fmt.sampleMimeType?.contains("avc", true) == true -> "H264"
                         else -> fmt.sampleMimeType ?: "?"
                     }
-                    "${fmt.height}p $codec ${fmt.bitrate / 1000}kbps sel=${group.isTrackSelected(i)}"
+                    "${fmt.width}x${fmt.height} $codec ${fmt.bitrate / 1000}kbps sel=${group.isTrackSelected(i)}"
                 }
                 Log.w(tag, "Video tracks group[$gi]: $info")
             }
