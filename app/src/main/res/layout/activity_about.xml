@@ -442,7 +442,7 @@
                             android:minWidth="0dp"
                             android:paddingStart="18dp"
                             android:paddingEnd="18dp"
-                            android:text="4K / HDR"
+                            android:text="4K (HDR if supported)"
                             android:textAllCaps="false"
                             android:textColor="@color/settings_quality_option_text"
                             android:textSize="@dimen/action_text_size"

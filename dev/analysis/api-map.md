@@ -92,7 +92,7 @@ Source: `login.py:563-575`
 ## Playback Endpoints
 
 ### 1. Get Stream Manifest (GetPlaybackResources)
-- **Endpoint**: `GET {ATVUrl}/cdp/catalog/GetPlaybackResources`
+- **Endpoint**: `POST {ATVUrl}/cdp/catalog/GetPlaybackResources`
 - **Required params**:
   - `asin={content_asin}`
   - `deviceTypeID={dtid}` — use `A43PXU4ZN2AL1` for Android/token auth
@@ -101,7 +101,7 @@ Source: `login.py:563-575`
   - `marketplaceID={marketplace_id}`
   - `format=json`
   - `version=2`
-  - `gascEnabled=true` (for PrimeVideo endpoints)
+  - `gascEnabled=true` for Prime Video sites, `false` for Amazon retail sites (derived from `defaultVideoWebsite`, matching Kodi `UsePrimeVideo`)
 - **Extra params (for streaming)**:
   - `resourceUsage=ImmediateConsumption`
   - `consumptionType=Streaming`
@@ -111,6 +111,7 @@ Source: `login.py:563-575`
   - `deviceBitrateAdaptationsOverride=CVBR%2CCBR`
   - `audioTrackId=all`
   - `languageFeature=MLFv2`
+  - `subtitleFormat=TTMLv2` when `SubtitleUrls` is requested
   - `videoMaterialType=Feature` (or `Trailer`, `LiveStreaming`)
   - `desiredResources=PlaybackUrls,SubtitleUrls,ForcedNarratives,TransitionTimecodes`
   - `supportedDRMKeyScheme=DUAL_KEY`
@@ -157,7 +158,7 @@ Source: `login.py:563-575`
 
 ### 2. Widevine License Request (GetPlaybackResources)
 - **License server URL**: Same base endpoint but with `desiredResources=Widevine2License` and `retURL=True`
-  - Full URL: `{ATVUrl}/cdp/catalog/GetPlaybackResources?asin={asin}&deviceTypeID={dtid}&firmware=1&deviceID={deviceID}&marketplaceID={MarketID}&format=json&version=2&gascEnabled=true&resourceUsage=ImmediateConsumption&consumptionType=Streaming&deviceDrmOverride=CENC&deviceStreamingTechnologyOverride=DASH&deviceProtocolOverride=Https&deviceBitrateAdaptationsOverride=CVBR%2CCBR&audioTrackId=all&languageFeature=MLFv2&videoMaterialType=Feature&desiredResources=Widevine2License&supportedDRMKeyScheme=DUAL_KEY`
+  - Full URL: `{ATVUrl}/cdp/catalog/GetPlaybackResources?asin={asin}&deviceTypeID={dtid}&firmware=1&deviceID={deviceID}&marketplaceID={MarketID}&format=json&version=2&gascEnabled={UsePrimeVideo}&resourceUsage=ImmediateConsumption&consumptionType=Streaming&deviceDrmOverride=CENC&deviceStreamingTechnologyOverride=DASH&deviceProtocolOverride=Https&deviceBitrateAdaptationsOverride=CVBR%2CCBR&audioTrackId=all&languageFeature=MLFv2&videoMaterialType=Feature&desiredResources=Widevine2License&supportedDRMKeyScheme=DUAL_KEY`
 - **License request body format**: `widevine2Challenge=<base64url_encoded_challenge_bytes>`
 - **License request headers**:
   - `Authorization: Bearer <access_token>`
