@@ -89,6 +89,8 @@ class AboutActivity : AppCompatActivity() {
     private fun setupQualitySection() {
         // H265 decoder + display HDR capability indicators
         val supportsH265 = DeviceCapabilities.deviceSupportsH265()
+        val widevineLevel = DeviceCapabilities.widevineSecurityLevel()
+        val supportsWidevineL1 = widevineLevel == "L1"
         val hdrTypes = windowManager.defaultDisplay.hdrCapabilities?.supportedHdrTypes ?: intArrayOf()
         val hdrFormats = DeviceCapabilities.supportedHdrFormats(hdrTypes)
         val hdrLabel = when {
@@ -110,19 +112,24 @@ class AboutActivity : AppCompatActivity() {
         tvCodecBadge.text = if (supportsH265) "HEVC ready" else "HEVC unavailable"
         tvHdrBadge.text = if (supportsDisplayHdr) "HDR: ${hdrFormats.joinToString(" + ")}" else "No HDR10/DV output"
         tvQualityChip.text = when {
+            !supportsWidevineL1 -> "SD only · Widevine L3"
             supportsH265 && supportsDisplayHdr -> "4K HDR capable"
             supportsH265 -> "4K SDR capable"
             else -> "HD only"
         }
         findViewById<TextView>(R.id.tv_h265_support).text =
-            "Device H265/HEVC: ${if (supportsH265) "Yes" else "No"}  ·  Display HDR: $hdrLabel"
+            "Widevine: $widevineLevel  ·  HEVC: ${if (supportsH265) "Yes" else "No"}  ·  Display HDR: $hdrLabel"
 
-        btnHdH265.isEnabled = supportsH265
-        btnUhd.isEnabled = supportsH265
-        btnHdH265.alpha = if (supportsH265) 1f else 0.45f
-        btnUhd.alpha = if (supportsH265) 1f else 0.45f
+        btnHd.isEnabled = supportsWidevineL1
+        btnHdH265.isEnabled = supportsH265 && supportsWidevineL1
+        btnUhd.isEnabled = supportsH265 && supportsWidevineL1
+        btnHd.alpha = if (supportsWidevineL1) 1f else 0.45f
+        btnHdH265.alpha = if (supportsH265 && supportsWidevineL1) 1f else 0.45f
+        btnUhd.alpha = if (supportsH265 && supportsWidevineL1) 1f else 0.45f
 
         tvNote.text = when {
+            !supportsWidevineL1 ->
+                "Widevine L3 is active. Amazon HD/UHD requests require Widevine L1, so playback is restricted to SD regardless of the saved quality preference."
             !supportsH265 ->
                 "This device has no HEVC decoder, so the UHD request is unavailable. HD H264 remains available."
             !supportsDisplayHdr ->

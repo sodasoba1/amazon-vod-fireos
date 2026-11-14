@@ -110,9 +110,6 @@ class AmazonApiService(private val authService: AmazonAuthService) {
                     ?.getAsJsonPrimitive("avMarketplace")?.asString
                 val defaultVideoWebsite = territoryConfig
                     ?.getAsJsonPrimitive("defaultVideoWebsite")?.asString
-                if (!defaultVideoWebsite.isNullOrBlank()) {
-                    usePrimeVideo = defaultVideoWebsite.contains("primevideo", ignoreCase = true)
-                }
                 // homeRegion is under customerConfig (Kodi login.py:70)
                 val homeRegion = customerConfig
                     ?.getAsJsonPrimitive("homeRegion")?.asString
@@ -142,10 +139,9 @@ class AmazonApiService(private val authService: AmazonAuthService) {
                     sidomain = dynamic.sidomain
                 }
 
-                // If Amazon omitted defaultVideoWebsite, derive the service from the resolved ATV host.
-                if (defaultVideoWebsite.isNullOrBlank()) {
-                    usePrimeVideo = atvUrl.contains("primevideo", ignoreCase = true)
-                }
+                // Match Kodi's resolved territory profile: Prime Video endpoints set pv=true,
+                // Amazon retail endpoints set pv=false. Dynamic endpoints were built from defaultVideoWebsite.
+                usePrimeVideo = atvUrl.contains("primevideo", ignoreCase = true)
 
                 // Override lang from uxLocale if it looks like a valid locale (xx_XX)
                 if (!uxLocale.isNullOrEmpty() && uxLocale.matches(Regex("[a-z]{2}_[A-Z]{2}"))) {
