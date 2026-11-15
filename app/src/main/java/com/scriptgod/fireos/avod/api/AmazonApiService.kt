@@ -1,6 +1,7 @@
 package com.scriptgod.fireos.avod.api
 
 import android.util.Log
+import com.scriptgod.fireos.avod.BuildConfig
 import com.scriptgod.fireos.avod.auth.AmazonAuthService
 import com.scriptgod.fireos.avod.model.ContentItem
 import com.scriptgod.fireos.avod.model.ContentRail
@@ -958,12 +959,13 @@ class AmazonApiService(private val authService: AmazonAuthService) {
         val did = deviceId()
         val params = buildString {
             append("asin=").append(asin)
-            append("&deviceTypeID=").append(AmazonAuthService.DEVICE_TYPE_ID)
+            append(if (BuildConfig.STOLLD_PLAYBACK_API_V1) "&deviceTypeId=" else "&deviceTypeID=")
+            append(AmazonAuthService.DEVICE_TYPE_ID)
             append("&firmware=1")
             append("&deviceID=").append(did)
             append("&marketplaceID=").append(marketplaceId)
             append("&format=json")
-            append("&version=2")
+            append("&version=").append(if (BuildConfig.STOLLD_PLAYBACK_API_V1) "1" else "2")
             append("&gascEnabled=").append(usePrimeVideo)
             append("&subtitleFormat=TTMLv2")
             append("&resourceUsage=ImmediateConsumption")
@@ -991,10 +993,13 @@ class AmazonApiService(private val authService: AmazonAuthService) {
         Log.i(TAG, "GetPlaybackResources: asin=$asin materialType=$videoMaterialType")
         Log.i(TAG, "Playback request settings: gascEnabled=$usePrimeVideo quality=${quality.videoQuality} codec=${quality.codecOverride} hdr=${quality.hdrOverride} drm=CENC streaming=DASH")
 
-        val request = Request.Builder()
-            .url(url)
-            .post(emptyBody)
-            .build()
+        val requestBuilder = Request.Builder().url(url)
+        if (BuildConfig.STOLLD_PLAYBACK_API_V1) {
+            requestBuilder.get()
+        } else {
+            requestBuilder.post(emptyBody)
+        }
+        val request = requestBuilder.build()
 
         val response = client.newCall(request).execute()
         val body = response.body?.string()
@@ -1204,12 +1209,13 @@ class AmazonApiService(private val authService: AmazonAuthService) {
     ): String {
         return "$atvUrl/cdp/catalog/GetPlaybackResources" +
                "?asin=$asin" +
-               "&deviceTypeID=${AmazonAuthService.DEVICE_TYPE_ID}" +
+               (if (BuildConfig.STOLLD_PLAYBACK_API_V1) "&deviceTypeId=" else "&deviceTypeID=") +
+               AmazonAuthService.DEVICE_TYPE_ID +
                "&firmware=1" +
                "&deviceID=$deviceId" +
                "&marketplaceID=$marketplaceId" +
                "&format=json" +
-               "&version=2" +
+               "&version=" + (if (BuildConfig.STOLLD_PLAYBACK_API_V1) "1" else "2") +
                "&gascEnabled=$usePrimeVideo" +
                "&resourceUsage=ImmediateConsumption" +
                "&consumptionType=Streaming" +
