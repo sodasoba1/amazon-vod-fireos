@@ -147,9 +147,11 @@ class AmazonAuthService(private val tokenFile: File) {
 
             val response = chain.proceed(authedRequest)
 
-            if (response.code == 401 || response.code == 403) {
+            // A 403 normally indicates entitlement, territory, device, or policy denial.
+            // Refresh only on 401 so an access denial is not masked by an unnecessary retry.
+            if (response.code == 401) {
                 response.close()
-                Log.d(TAG, "Got ${response.code}, refreshing token and retrying")
+                Log.d(TAG, "Got 401, refreshing token and retrying")
                 synchronized(this@AmazonAuthService) { refresh() }
                 val retryRequest = originalRequest.newBuilder()
                     .header("Authorization", "Bearer ${getAccessToken()}")
