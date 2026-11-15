@@ -148,7 +148,8 @@ class PlaybackOrchestrator(
             logPlaybackSnapshot(
                 "RENDERER_DECODER_STALLED",
                 "stallRestartCount=${stallWatchdog.stallRestartCount} " +
-                    "lastVideoSegment=$lastVideoSegmentUrl lastAudioSegment=$lastAudioSegmentUrl"
+                    "lastVideoSegment=${redactUrlForLog(lastVideoSegmentUrl)} " +
+                    "lastAudioSegment=${redactUrlForLog(lastAudioSegmentUrl)}"
             )
             if (stallWatchdog.stallRestartCount > 20) {
                 callbacks.onError("Playback stalled and could not be recovered automatically.")
