@@ -169,7 +169,7 @@ class LoginFlow {
             put("openid.oa2.response_type", "code")
             put("openid.oa2.code_challenge_method", "S256")
             put("openid.oa2.code_challenge", codeChallenge)
-            put("pageId", "amzn_dv_ios_blue")
+            put("pageId", "amzn_device_common_dark")
             put("openid.ns.oa2", "http://www.amazon.com/ap/ext/oauth/2")
             put("openid.oa2.client_id", "device:$clientId")
             put("openid.ns.pape", "http://specs.openid.net/extensions/pape/1.0")
@@ -355,7 +355,7 @@ class LoginFlow {
             Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
         )
         deviceId = UUID.randomUUID().toString().replace("-", "").lowercase()
-        clientId = hexEncode("${deviceId}#A1MPSLFC7L5AFK")
+        clientId = hexEncode("${deviceId}#${AmazonAuthService.DEVICE_TYPE_ID}")
     }
 
     private fun setupFraudCookies() {
