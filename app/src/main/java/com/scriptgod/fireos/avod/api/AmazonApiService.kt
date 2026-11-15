@@ -1001,7 +1001,8 @@ class AmazonApiService(private val authService: AmazonAuthService) {
             ?: throw RuntimeException("Empty GetPlaybackResources response")
 
         if (!response.isSuccessful) {
-            throw RuntimeException("GetPlaybackResources failed: HTTP ${response.code} — $body")
+            // Do not include Amazon's raw response: it may contain signed manifest/CDN URLs.
+            throw RuntimeException("GetPlaybackResources failed: HTTP ${response.code}")
         }
 
         val manifestUrl = extractManifestUrl(body, cdnFailover)
@@ -1027,7 +1028,8 @@ class AmazonApiService(private val authService: AmazonAuthService) {
         logUrlSets(body)
 
         val bifUrl = extractBifUrl(body)
-        Log.i(TAG, "Trickplay BIF: ${if (bifUrl.isNotEmpty()) bifUrl.take(80) else "none"}")
+        val bifHost = runCatching { android.net.Uri.parse(bifUrl).host }.getOrNull()
+        Log.i(TAG, "Trickplay BIF host: ${bifHost ?: "none"}")
 
         return PlaybackInfo(
             manifestUrl = manifestUrl,
