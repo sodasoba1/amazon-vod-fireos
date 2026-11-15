@@ -163,8 +163,9 @@ class LoginFlow {
             URI(rt.scheme, rt.authority, "/ap/maplanding", null, null).toString()
         } else "https://www.amazon.com/ap/maplanding"
 
+        val oauthRegion = oauthRegionForHost(uri.host)
         val params = baseQuery.toMutableMap().apply {
-            put("openid.assoc_handle", "amzn_piv_android_v2_us")
+            put("openid.assoc_handle", "amzn_piv_android_v2_$oauthRegion")
             put("openid.return_to", returnToUri)
             put("openid.oa2.response_type", "code")
             put("openid.oa2.code_challenge_method", "S256")
@@ -179,7 +180,8 @@ class LoginFlow {
             put("openid.ns", "http://specs.openid.net/auth/2.0")
             put("accountStatusPolicy", "P1")
             put("openid.claimed_id", "http://specs.openid.net/auth/2.0/identifier_select")
-            put("language", "en_US")
+            put("language", oauthLanguageForRegion(oauthRegion))
+            put("forceMobileLayout", "true")
             put("disableLoginPrepopulate", "0")
             put("openid.pape.max_auth_age", "0")
         }
@@ -453,6 +455,27 @@ class LoginFlow {
         val title = Regex("<title>([^<]*)</title>").find(body)?.groupValues?.get(1) ?: "none"
         Log.w(TAG, "Unparsed page (HTTP $statusCode), title=$title")
         return Result(error = "Unexpected response (HTTP $statusCode). Check email/password and try again.")
+    }
+
+    /**
+     * Select the Android Prime Video association handle from the trusted OAuth host.
+     * Amazon may redirect a regional account to its marketplace host before login.
+     * Unknown hosts deliberately retain the US fallback rather than guessing.
+     */
+    private fun oauthRegionForHost(host: String): String = when {
+        host.equals("amazon.co.uk", true) || host.endsWith(".amazon.co.uk", true) -> "uk"
+        host.equals("amazon.de", true) || host.endsWith(".amazon.de", true) -> "de"
+        host.equals("amazon.co.jp", true) || host.endsWith(".amazon.co.jp", true) -> "jp"
+        host.equals("amazon.com.au", true) || host.endsWith(".amazon.com.au", true) -> "au"
+        else -> "us"
+    }
+
+    private fun oauthLanguageForRegion(region: String): String = when (region) {
+        "uk" -> "en_GB"
+        "de" -> "de_DE"
+        "jp" -> "ja_JP"
+        "au" -> "en_AU"
+        else -> "en_US"
     }
 
     private fun isTrustedAmazonHost(host: String): Boolean {
