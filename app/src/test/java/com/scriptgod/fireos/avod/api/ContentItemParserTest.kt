@@ -111,7 +111,7 @@ class ContentItemParserTest {
 
         assertFalse(item.isPrime)
         assertTrue(item.isFreeWithAds)
-        assertEquals(Availability.FREEVEE, item.availability)
+        assertEquals(Availability.FREE_WITH_ADS, item.availability)
     }
 
     @Test
