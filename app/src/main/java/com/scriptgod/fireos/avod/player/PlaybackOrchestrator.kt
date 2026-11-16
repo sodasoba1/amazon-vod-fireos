@@ -416,6 +416,7 @@ class PlaybackOrchestrator(
             androidx.media3.datasource.DataSource.Factory {
                 object : androidx.media3.datasource.DataSource {
                     private var httpSource: androidx.media3.datasource.DataSource? = null
+                    private val transferListeners = mutableListOf<androidx.media3.datasource.TransferListener>()
                     private var byteStream: java.io.ByteArrayInputStream? = null
                     private var isManifest = false
                     override fun open(dataSpec: androidx.media3.datasource.DataSpec): Long {
@@ -423,13 +424,21 @@ class PlaybackOrchestrator(
                             isManifest = true; byteStream = java.io.ByteArrayInputStream(correctedBytes)
                             return correctedBytes.size.toLong()
                         }
-                        isManifest = false; httpSource = httpDataSourceFactory.createDataSource()
+                        isManifest = false
+                        httpSource = httpDataSourceFactory.createDataSource().also { source ->
+                            transferListeners.forEach(source::addTransferListener)
+                        }
                         return httpSource!!.open(dataSpec)
                     }
                     override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
                         if (isManifest) byteStream?.read(buffer, offset, length) ?: -1
                         else httpSource?.read(buffer, offset, length) ?: -1
-                    override fun addTransferListener(l: androidx.media3.datasource.TransferListener) {}
+                    override fun addTransferListener(l: androidx.media3.datasource.TransferListener) {
+                        if (l !in transferListeners) {
+                            transferListeners += l
+                            httpSource?.addTransferListener(l)
+                        }
+                    }
                     override fun getUri(): android.net.Uri? = if (isManifest) manifestUri else httpSource?.uri
                     override fun close() { byteStream?.close(); byteStream = null; httpSource?.close(); httpSource = null }
                     override fun getResponseHeaders(): Map<String, List<String>> = httpSource?.responseHeaders ?: emptyMap()
