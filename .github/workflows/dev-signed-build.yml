@@ -1,0 +1,85 @@
+name: AVOD development build (signed)
+
+on:
+  push:
+    branches: [avod-dev]
+  workflow_dispatch:
+
+env:
+  JAVA_VERSION: '17'
+  JAVA_DISTRIBUTION: 'temurin'
+
+jobs:
+  build-signed-dev:
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: avod-dev
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Configure release signing
+        shell: bash
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${RELEASE_KEYSTORE_BASE64:?Missing RELEASE_KEYSTORE_BASE64 in the release environment}"
+          : "${RELEASE_STORE_PASSWORD:?Missing RELEASE_STORE_PASSWORD in the release environment}"
+          : "${RELEASE_KEY_ALIAS:?Missing RELEASE_KEY_ALIAS in the release environment}"
+          : "${RELEASE_KEY_PASSWORD:?Missing RELEASE_KEY_PASSWORD in the release environment}"
+          KEYSTORE="$RUNNER_TEMP/avod-release.jks"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          test -s "$KEYSTORE"
+          echo "RELEASE_STORE_FILE=$KEYSTORE" >> "$GITHUB_ENV"
+          echo "RELEASE_STORE_PASSWORD=$RELEASE_STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "RELEASE_KEY_ALIAS=$RELEASE_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "RELEASE_KEY_PASSWORD=$RELEASE_KEY_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Run unit tests and build signed release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          VERSION_NAME="0.1.0-dev.${GITHUB_RUN_NUMBER}"
+          VERSION_CODE="$(($(date -u +%y%m%d) * 1000 + GITHUB_RUN_NUMBER % 1000))"
+          ./gradlew testDebugUnitTest assembleRelease \
+            -PversionNameOverride="$VERSION_NAME" \
+            -PversionCodeOverride="$VERSION_CODE"
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          cp "$APK" "AVOD-FireOS-$VERSION_NAME-signed.apk"
+          echo "APK_PATH=AVOD-FireOS-$VERSION_NAME-signed.apk" >> "$GITHUB_ENV"
+
+      - name: Verify APK signature
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$APK_PATH"
+
+      - name: Upload signed development APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AVOD-FireOS-signed-dev-${{ github.run_number }}
+          path: AVOD-FireOS-*-signed.apk
+          retention-days: 30
