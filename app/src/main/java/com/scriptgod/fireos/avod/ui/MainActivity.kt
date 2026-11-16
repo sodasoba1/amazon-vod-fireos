@@ -460,9 +460,6 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        switchToGridMode()
-
-
     }
 
     // --- Nav button highlight ---

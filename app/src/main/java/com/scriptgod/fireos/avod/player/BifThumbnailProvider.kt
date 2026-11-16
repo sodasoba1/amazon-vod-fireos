@@ -9,120 +9,191 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 
 @UnstableApi
 class BifThumbnailProvider(private val scope: CoroutineScope) {
 
     companion object {
         private const val TAG = "BifThumbnailProvider"
+        private const val MAX_RANGE_BYTES = 4L * 1024L * 1024L
     }
 
-    /** BIF index: list of (timecodeMs, byteOffset) pairs loaded once per playback session. */
-    private var bifEntries: List<Pair<Long, Int>>? = null
-    private val thumbCache = LruCache<Int, Bitmap>(10)
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .callTimeout(15, TimeUnit.SECONDS)
+        .build()
+
+    @Volatile private var bifUrl: String = ""
+    @Volatile private var bifIndex: BifIndex? = null
+    @Volatile var onIndexLoaded: (() -> Unit)? = null
+    private val stateLock = Any()
+    private var loadGeneration = 0L
+    private val thumbCache = LruCache<String, Bitmap>(10)
+
+    fun clear() {
+        synchronized(stateLock) {
+            loadGeneration++
+            bifUrl = ""
+            bifIndex = null
+            thumbCache.evictAll()
+        }
+    }
 
     /**
-     * Downloads and parses the BIF file header + index table so individual frames can be
-     * fetched on demand via HTTP Range requests while the user scrubs.
-     *
-     * BIF header (64 bytes total):
-     *   bytes 0-7:   magic
-     *   bytes 8-11:  version (uint32 LE)
-     *   bytes 12-15: image count (uint32 LE)
-     *   bytes 16-19: timecode multiplier in ms (uint32 LE; e.g. 1000 = 1 frame/sec)
-     *   bytes 20-63: reserved
-     * BIF index starts at byte 64: N+1 entries of (uint32 timestamp, uint32 byteOffset),
-     * terminated by (0xFFFFFFFF, totalFileSize).
+     * Loads only the header and index. Individual JPEGs are fetched on demand.
+     * [durationMs] is used only when the file's timestamp multiplier is invalid.
      */
-    fun loadIndex(bifUrl: String) {
+    fun loadIndex(url: String, durationMs: Long = 0L) {
+        if (url.isBlank()) {
+            clear()
+            return
+        }
+
+        var alreadyLoaded = false
+        val generation = synchronized(stateLock) {
+            if (bifUrl == url && bifIndex != null) {
+                alreadyLoaded = true
+                -1L
+            } else {
+                loadGeneration++
+                bifUrl = url
+                bifIndex = null
+                thumbCache.evictAll()
+                loadGeneration
+            }
+        }
+        if (alreadyLoaded) {
+            scope.launch(Dispatchers.Main) { onIndexLoaded?.invoke() }
+            return
+        }
+
         scope.launch(Dispatchers.IO) {
             try {
-                // Fetch header to get image count and timecode multiplier.
-                val headerBytes = bifRangeGet(bifUrl, 0, 63) ?: return@launch
-                if (headerBytes.size < 20) return@launch
-                val buf = java.nio.ByteBuffer.wrap(headerBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-                buf.position(8)  // skip magic
-                buf.int          // skip version
-                val imageCount = buf.int
-                val multiplier = buf.int.toLong().coerceAtLeast(1L)
-                if (imageCount <= 0 || imageCount > 100_000) return@launch
+                val header = bifRangeGet(url, 0L, 63L) ?: return@launch
+                if (header.size != 64) return@launch
 
-                // Fetch the index table (N+1 entries × 8 bytes each).
+                val countBuffer = java.nio.ByteBuffer.wrap(header)
+                    .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                countBuffer.position(12)
+                val imageCount = countBuffer.int.toLong() and 0xFFFFFFFFL
+                if (imageCount !in 1L..100_000L) return@launch
+
                 val indexStart = 64L
-                val indexBytes = bifRangeGet(bifUrl, indexStart, indexStart + (imageCount + 1) * 8 - 1)
-                    ?: return@launch
+                val indexEnd = indexStart + ((imageCount + 1L) * 8L) - 1L
+                val indexBytes = bifRangeGet(url, indexStart, indexEnd) ?: return@launch
+                val parsed = BifIndexParser.parse(header, indexBytes, durationMs)
+                    ?: run {
+                        Log.w(TAG, "BIF index rejected: invalid header or index")
+                        return@launch
+                    }
 
-                val idxBuf = java.nio.ByteBuffer.wrap(indexBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-                val entries = ArrayList<Pair<Long, Int>>(imageCount)
-                for (i in 0..imageCount) {
-                    val ts = idxBuf.int.toLong() and 0xFFFFFFFFL
-                    val off = idxBuf.int
-                    if (ts == 0xFFFFFFFFL) break
-                    entries.add(Pair(ts * multiplier, off))
+                val accepted = withContext(Dispatchers.Main) {
+                    synchronized(stateLock) {
+                        if (generation == loadGeneration && bifUrl == url) {
+                            bifIndex = parsed
+                            true
+                        } else false
+                    }.also { if (it) onIndexLoaded?.invoke() }
                 }
-                Log.i(TAG, "BIF index loaded: ${entries.size} frames, multiplier=${multiplier}ms")
-                withContext(Dispatchers.Main) { bifEntries = entries }
+                if (accepted) {
+                    Log.i(TAG, "BIF index loaded: " + parsed.frames.size +
+                        " frames, multiplier=" + parsed.timestampMultiplierMs + "ms")
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "BIF index load failed", e)
             }
         }
     }
 
-    fun bifRangeGet(url: String, from: Long, to: Long): ByteArray? {
+    /**
+     * Performs a strict byte-range request. A 200 response, mismatched
+     * Content-Range, compressed representation, or short body is not usable.
+     */
+    private fun bifRangeGet(url: String, from: Long, to: Long): ByteArray? {
+        if (from < 0L || to < from || to - from + 1L > MAX_RANGE_BYTES) return null
         return try {
-            val req = okhttp3.Request.Builder()
+            val request = Request.Builder()
                 .url(url)
-                .header("Range", "bytes=$from-$to")
-                .get().build()
-            okhttp3.OkHttpClient().newCall(req).execute().body?.bytes()
-        } catch (e: Exception) { null }
+                .header("Range", "bytes=" + from + "-" + to)
+                .header("Accept-Encoding", "identity")
+                .get()
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                if (response.code != 206) {
+                    Log.w(TAG, "BIF range rejected: HTTP " + response.code)
+                    return null
+                }
+                if (!response.header("Content-Encoding").isNullOrBlank() &&
+                    !response.header("Content-Encoding").equals("identity", ignoreCase = true)
+                ) return null
+
+                val contentRange = response.header("Content-Range") ?: return null
+                val match = Regex("""bytes (\d+)-(\d+)/(\d+|\*)""").matchEntire(contentRange)
+                    ?: return null
+                if (match.groupValues[1].toLongOrNull() != from ||
+                    match.groupValues[2].toLongOrNull() != to
+                ) return null
+
+                val bytes = response.body?.bytes() ?: return null
+                if (bytes.size.toLong() != to - from + 1L) return null
+                bytes
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "BIF range request failed", e)
+            null
+        }
     }
 
-    /**
-     * Fetches the thumbnail at [posMs] and delivers it via [onBitmap].
-     * Returns null via callback if thumbnails are unavailable or loading fails.
-     */
-    fun getThumbnailAt(posMs: Long, bifUrl: String, onBitmap: (Bitmap?) -> Unit) {
-        val entries = bifEntries
-        if (entries == null || entries.isEmpty()) {
+    fun getThumbnailAt(posMs: Long, url: String, onBitmap: (Bitmap?) -> Unit) {
+        val index = bifIndex
+        if (index == null || url != bifUrl || index.frames.isEmpty()) {
             onBitmap(null)
             return
         }
 
-        // Binary search: largest timecodeMs <= posMs.
-        var lo = 0; var hi = entries.size - 1
-        while (lo < hi) {
-            val mid = (lo + hi + 1) / 2
-            if (entries[mid].first <= posMs) lo = mid else hi = mid - 1
+        val frames = index.frames
+        var low = 0
+        var high = frames.lastIndex
+        while (low < high) {
+            val middle = (low + high + 1) / 2
+            if (frames[middle].timestampMs <= posMs) low = middle else high = middle - 1
         }
-        val idx = lo
-
-        val cached = thumbCache.get(idx)
-        if (cached != null) {
-            onBitmap(cached)
+        val frameIndex = low
+        val frame = frames[frameIndex]
+        val cacheKey = url + "#" + frameIndex
+        thumbCache.get(cacheKey)?.let {
+            onBitmap(it)
             return
         }
 
-        val fromOffset = entries[idx].second.toLong()
-        val toOffset = if (idx + 1 < entries.size) entries[idx + 1].second.toLong() - 1
-                       else fromOffset + 65535L
+        val byteCount = frame.endOffsetExclusive - frame.startOffset
+        if (byteCount <= 0L || byteCount > MAX_RANGE_BYTES) {
+            onBitmap(null)
+            return
+        }
 
         scope.launch(Dispatchers.IO) {
-            try {
-                val bytes = bifRangeGet(bifUrl, fromOffset, toOffset)
-                if (bytes == null) {
-                    withContext(Dispatchers.Main) { onBitmap(null) }
-                    return@launch
-                }
-                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                if (bmp != null) thumbCache.put(idx, bmp)
-                withContext(Dispatchers.Main) { onBitmap(bmp) }
+            val bitmap = try {
+                val bytes = bifRangeGet(url, frame.startOffset, frame.endOffsetExclusive - 1L)
+                if (bytes == null) null else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
             } catch (e: Exception) {
-                Log.w(TAG, "BIF frame fetch failed idx=$idx", e)
-                withContext(Dispatchers.Main) { onBitmap(null) }
+                Log.w(TAG, "BIF frame decode failed index=" + frameIndex, e)
+                null
+            }
+
+            withContext(Dispatchers.Main) {
+                if (bifUrl == url) {
+                    if (bitmap != null) thumbCache.put(cacheKey, bitmap)
+                    onBitmap(bitmap)
+                }
             }
         }
     }
 
-    fun hasBifEntries(): Boolean = bifEntries != null && bifEntries!!.isNotEmpty()
+    fun hasBifEntries(): Boolean = bifIndex?.frames?.isNotEmpty() == true && bifUrl.isNotEmpty()
 }

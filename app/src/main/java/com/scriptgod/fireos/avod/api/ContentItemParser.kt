@@ -72,7 +72,7 @@ internal object ContentItemParser {
             && !isLive
         val availability = when {
             isLive -> Availability.LIVE
-            isFreeWithAds -> Availability.FREEVEE
+            isFreeWithAds -> Availability.FREE_WITH_ADS
             isPrime -> Availability.PRIME
             else -> Availability.UNKNOWN
         }

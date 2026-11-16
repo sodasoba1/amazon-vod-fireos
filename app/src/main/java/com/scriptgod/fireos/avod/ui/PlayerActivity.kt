@@ -7,20 +7,24 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
+import coil.load
 import com.scriptgod.fireos.avod.R
 import com.scriptgod.fireos.avod.api.AmazonApiService
 import com.scriptgod.fireos.avod.auth.AmazonAuthService
 import com.scriptgod.fireos.avod.auth.TokenStore
 import com.scriptgod.fireos.avod.data.ProgressRepository
+import com.scriptgod.fireos.avod.model.DetailInfo
 import com.scriptgod.fireos.avod.model.PlaybackQuality
 import com.scriptgod.fireos.avod.player.BifThumbnailProvider
 import com.scriptgod.fireos.avod.player.PlaybackOrchestrator
@@ -59,7 +63,18 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var tvPlaybackHint: TextView
     private lateinit var btnAudio: Button
     private lateinit var btnSubtitle: Button
+    private lateinit var cardPauseInfo: View
+    private lateinit var ivPausePoster: ImageView
+    private lateinit var tvPauseTitle: TextView
+    private lateinit var tvPauseMetadata: TextView
+    private lateinit var tvPauseSynopsis: TextView
     private var resumePlaybackAfterPause = false
+    private var isActivityInForeground = false
+    private var pausePanelPlayer: ExoPlayer? = null
+    private val pausePanelListener = object : Player.Listener {
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) = updatePauseInfoVisibility()
+        override fun onPlaybackStateChanged(playbackState: Int) = updatePauseInfoVisibility()
+    }
 
     // --- Controllers ---
     private lateinit var orchestrator: PlaybackOrchestrator
@@ -101,6 +116,11 @@ class PlayerActivity : AppCompatActivity() {
         tvPlaybackHint   = findViewById(R.id.tv_playback_hint)
         btnAudio         = findViewById(R.id.btn_audio)
         btnSubtitle      = findViewById(R.id.btn_subtitle)
+        cardPauseInfo    = findViewById(R.id.card_pause_info)
+        ivPausePoster    = findViewById(R.id.iv_pause_poster)
+        tvPauseTitle     = findViewById(R.id.tv_pause_title)
+        tvPauseMetadata  = findViewById(R.id.tv_pause_metadata)
+        tvPauseSynopsis  = findViewById(R.id.tv_pause_synopsis)
 
         tvPlaybackTitle.text = intent.getStringExtra(EXTRA_TITLE) ?: "Now Playing"
         tvPlaybackHint.text  = "Press MENU for tracks. Press Back to exit."
@@ -147,6 +167,7 @@ class PlayerActivity : AppCompatActivity() {
             bifThumbnailProvider = orchestrator.bifThumbnailProvider,
             playbackInfoProvider = { orchestrator.currentPlaybackInfo }
         )
+        orchestrator.bifThumbnailProvider.onIndexLoaded = { seekPreview.retryCurrentPreview() }
 
         trackMenu = TrackMenuController(
             context          = this,
@@ -192,6 +213,8 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        isActivityInForeground = false
+        if (::cardPauseInfo.isInitialized) cardPauseInfo.visibility = View.GONE
         if (::orchestrator.isInitialized) {
             resumePlaybackAfterPause = orchestrator.player?.playWhenReady == true
             orchestrator.persistPlaybackProgress(force = true)
@@ -202,6 +225,7 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        isActivityInForeground = true
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
@@ -217,10 +241,13 @@ class PlayerActivity : AppCompatActivity() {
         }
         if (::playerView.isInitialized) playerView.post {
             if (!playerView.isControllerFullyVisible) playerView.requestFocus()
+            updatePauseInfoVisibility()
         }
     }
 
     override fun onStop() {
+        isActivityInForeground = false
+        if (::cardPauseInfo.isInitialized) cardPauseInfo.visibility = View.GONE
         super.onStop()
         if (::orchestrator.isInitialized) {
             orchestrator.persistPlaybackProgress(force = true)
@@ -236,6 +263,8 @@ class PlayerActivity : AppCompatActivity() {
         noticeHandler.removeCallbacksAndMessages(null)
         if (::trackMenu.isInitialized) trackMenu.release()
         if (::seekPreview.isInitialized) seekPreview.cancelPendingHide()
+        pausePanelPlayer?.removeListener(pausePanelListener)
+        pausePanelPlayer = null
         if (::orchestrator.isInitialized) orchestrator.release()
         updatePlaybackWakeState(false)
     }
@@ -380,6 +409,11 @@ class PlayerActivity : AppCompatActivity() {
 
     private val orchestratorCallbacks = object : PlaybackOrchestrator.Callbacks {
         override fun onPlayerReady(player: ExoPlayer, trackSelector: DefaultTrackSelector) {
+            if (pausePanelPlayer !== player) {
+                pausePanelPlayer?.removeListener(pausePanelListener)
+                pausePanelPlayer = player
+                player.addListener(pausePanelListener)
+            }
             playerView.player = player
             // Re-hide native track buttons that reappear when ExoPlayer is attached
             playerView.post {
@@ -410,11 +444,40 @@ class PlayerActivity : AppCompatActivity() {
         override fun onTitleChanged(title: String) { tvPlaybackTitle.text = title }
         override fun onQualityResolved(materialType: String, quality: PlaybackQuality) =
             updatePlaybackStatus(materialType, quality)
+        override fun onDetailInfoLoaded(detailInfo: DetailInfo?) = bindPauseInfo(detailInfo)
     }
 
     // -------------------------------------------------------------------------
     // UI helpers
     // -------------------------------------------------------------------------
+
+    private fun bindPauseInfo(info: DetailInfo?) {
+        if (info == null) {
+            cardPauseInfo.visibility = View.GONE
+            return
+        }
+        tvPauseTitle.text = info.title
+        tvPauseSynopsis.text = info.synopsis
+        val metadata = buildList {
+            if (info.year > 0) add(info.year.toString())
+            if (info.ageRating.isNotBlank()) add(info.ageRating)
+            if (info.genres.isNotEmpty()) add(info.genres.take(2).joinToString(", "))
+        }.joinToString("  ·  ")
+        tvPauseMetadata.text = metadata
+        tvPauseMetadata.visibility = if (metadata.isBlank()) View.GONE else View.VISIBLE
+        val imageUrl = info.posterImageUrl.ifBlank { info.heroImageUrl }
+        if (imageUrl.isNotBlank()) ivPausePoster.load(imageUrl) else ivPausePoster.setImageDrawable(null)
+        updatePauseInfoVisibility()
+    }
+
+    private fun updatePauseInfoVisibility() {
+        if (!::cardPauseInfo.isInitialized || !::orchestrator.isInitialized) return
+        val activePlayer = orchestrator.player
+        val synopsisAvailable = !orchestrator.currentDetailInfo?.synopsis.isNullOrBlank()
+        val show = isActivityInForeground && synopsisAvailable && activePlayer != null &&
+            activePlayer.playbackState == Player.STATE_READY && !activePlayer.playWhenReady
+        cardPauseInfo.visibility = if (show) View.VISIBLE else View.GONE
+    }
 
     private fun updateVideoFormatLabel() {
         val fmt = orchestrator.player?.videoFormat

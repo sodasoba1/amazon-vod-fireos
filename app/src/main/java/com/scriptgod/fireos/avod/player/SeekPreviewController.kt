@@ -13,9 +13,6 @@ import com.scriptgod.fireos.avod.model.PlaybackInfo
 
 /**
  * Manages the seek-preview thumbnail card and D-pad seek accumulation.
- *
- * Call [showThumbnailAt] / [hideThumbnail] from the TimeBar scrub listener,
- * and [handleDpadSeek] from Activity.dispatchKeyEvent when the seek bar has focus.
  */
 @UnstableApi
 class SeekPreviewController(
@@ -27,45 +24,65 @@ class SeekPreviewController(
 ) {
     private val handler = Handler(Looper.getMainLooper())
     private val hideRunnable = Runnable { hideThumbnail() }
-
-    /** Accumulated D-pad seek position; -1 = not currently previewing. */
     private var previewPos: Long = -1L
+    private var requestSequence = 0L
 
     fun showThumbnailAt(posMs: Long) {
-        val totalSec = posMs / 1000L
-        val h = totalSec / 3600; val m = (totalSec % 3600) / 60; val s = totalSec % 60
-        tvSeekTime.text = if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+        previewPos = posMs.coerceAtLeast(0L)
+        val requestedPosition = previewPos
+        val requestId = ++requestSequence
+        val totalSec = requestedPosition / 1000L
+        val hours = totalSec / 3600L
+        val minutes = (totalSec % 3600L) / 60L
+        val seconds = totalSec % 60L
+        tvSeekTime.text = if (hours > 0L) {
+            "%d:%02d:%02d".format(hours, minutes, seconds)
+        } else {
+            "%d:%02d".format(minutes, seconds)
+        }
         cardSeekThumbnail.visibility = View.VISIBLE
 
         val info = playbackInfoProvider() ?: return
         if (!info.hasThumbnails || !bifThumbnailProvider.hasBifEntries()) return
-        bifThumbnailProvider.getThumbnailAt(posMs, info.bifUrl) { bmp ->
-            if (bmp != null) ivSeekThumbnail.setImageBitmap(bmp)
+
+        bifThumbnailProvider.getThumbnailAt(requestedPosition, info.bifUrl) { bitmap ->
+            if (requestId == requestSequence &&
+                previewPos == requestedPosition &&
+                cardSeekThumbnail.visibility == View.VISIBLE
+            ) {
+                ivSeekThumbnail.setImageBitmap(bitmap)
+            }
         }
     }
 
-    fun hideThumbnail() {
-        previewPos = -1L
-        cardSeekThumbnail.visibility = View.GONE
-        ivSeekThumbnail.setImageBitmap(null)
+    /** Called when the asynchronous BIF index finishes loading during an active scrub. */
+    fun retryCurrentPreview() {
+        if (previewPos >= 0L) showThumbnailAt(previewPos)
     }
 
-    /**
-     * Accumulates position and schedules thumbnail display for a D-pad seek key event.
-     * The caller should still forward the event to `super.dispatchKeyEvent()` for ExoPlayer to seek.
-     */
+    fun hideThumbnail() {
+        requestSequence++
+        previewPos = -1L
+        cardSeekThumbnail.visibility = View.GONE
+        ivSeekThumbnail.setImageDrawable(null)
+    }
+
     fun handleDpadSeek(keyCode: Int, player: ExoPlayer?) {
-        val dur = player?.duration?.takeIf { it > 0 } ?: Long.MAX_VALUE
-        if (previewPos < 0) previewPos = player?.currentPosition ?: 0L
-        previewPos = if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
-            minOf(previewPos + 10_000L, dur) else maxOf(previewPos - 10_000L, 0L)
-        val pos = previewPos
+        val duration = player?.duration?.takeIf { it > 0L } ?: Long.MAX_VALUE
+        if (previewPos < 0L) previewPos = player?.currentPosition ?: 0L
+        previewPos = if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            minOf(previewPos + 10_000L, duration)
+        } else {
+            maxOf(previewPos - 10_000L, 0L)
+        }
+        val position = previewPos
         handler.removeCallbacks(hideRunnable)
-        handler.post { showThumbnailAt(pos) }
-        handler.postDelayed(hideRunnable, 1500L)
+        handler.post { showThumbnailAt(position) }
+        handler.postDelayed(hideRunnable, 1_500L)
     }
 
     fun cancelPendingHide() {
         handler.removeCallbacksAndMessages(null)
+        requestSequence++
     }
 }

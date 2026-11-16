@@ -374,7 +374,9 @@ class DetailActivity : AppCompatActivity() {
     }
 
     private fun onResumeEpisodeClicked(episode: ContentItem) {
-        val resumeMs = ProgressRepository.get(episode.asin)?.positionMs?.coerceAtLeast(0L) ?: 0L
+        val resumeMs = ProgressRepository.get(episode.asin)?.positionMs?.takeIf { it > 0L }
+            ?: episode.watchProgressMs.takeIf { it > 0L }
+            ?: 0L
         val intent = Intent(this, PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_ASIN, episode.asin)
             putExtra(PlayerActivity.EXTRA_TITLE, episode.title)
@@ -386,32 +388,50 @@ class DetailActivity : AppCompatActivity() {
         UiTransitions.open(this, intent)
     }
 
-    /** Finds the most recent in-progress episode for a series and wires up the Resume CTA.
-     *  Checks server-backed items first; falls back to local-only progress map entries. */
+    /** Finds an in-progress episode for a series. Recently updated local progress wins;
+     *  otherwise retain the order returned by the server's Continue Watching response. */
     private fun updateSeriesResumeCta(info: DetailInfo) {
-        val serverEpisode = ProgressRepository.getInProgressItems()
-            .filter { it.seriesAsin == info.asin }
-            .maxByOrNull { it.watchProgressMs }
-        val resumeEpisode: ContentItem? = serverEpisode ?: run {
-            val local = ProgressRepository.getLocalProgressForSeries(info.asin) ?: return@run null
-            ContentItem(
-                asin = local.first,
-                title = "Episode",
-                contentType = "Episode",
-                watchProgressMs = local.second.positionMs,
-                seriesAsin = info.asin,
-                seasonId = local.second.seasonAsin
-            )
-        }
-        if (resumeEpisode != null) {
-            val label = if (resumeEpisode.seasonNumber != null && resumeEpisode.episodeNumber != null)
-                "▶  Resume S${resumeEpisode.seasonNumber}E${resumeEpisode.episodeNumber}"
+        val serverEpisodes = ProgressRepository.getInProgressItems()
+            .filter { it.seriesAsin == info.asin && it.watchProgressMs > 0L }
+        val recentlyUpdated = serverEpisodes
+            .maxByOrNull { ProgressRepository.get(it.asin)?.updatedAtMs ?: 0L }
+            ?.takeIf { (ProgressRepository.get(it.asin)?.updatedAtMs ?: 0L) > 0L }
+        val serverEpisode = recentlyUpdated ?: serverEpisodes.firstOrNull()
+
+        if (serverEpisode != null) {
+            val label = if (serverEpisode.seasonNumber != null && serverEpisode.episodeNumber != null)
+                "▶  Resume S${serverEpisode.seasonNumber}E${serverEpisode.episodeNumber}"
             else "▶  Resume Episode"
             btnPlay.text = label
             btnPlay.visibility = View.VISIBLE
-            btnPlay.setOnClickListener { onResumeEpisodeClicked(resumeEpisode) }
-        } else {
+            btnPlay.setOnClickListener { onResumeEpisodeClicked(serverEpisode) }
+            return
+        }
+
+        val local = ProgressRepository.getLocalProgressForSeries(info.asin)
+        if (local == null) {
             btnPlay.visibility = View.GONE
+            return
+        }
+
+        btnPlay.text = "▶  Resume Episode"
+        btnPlay.visibility = View.VISIBLE
+        btnPlay.setOnClickListener {
+            btnPlay.isEnabled = false
+            lifecycleScope.launch {
+                val episodeInfo = withContext(Dispatchers.IO) { apiService.getDetailInfo(local.first) }
+                btnPlay.isEnabled = true
+                val episode = ContentItem(
+                    asin = local.first,
+                    title = episodeInfo?.title?.takeIf { it.isNotBlank() } ?: "Episode",
+                    contentType = episodeInfo?.contentType?.takeIf { it.isNotBlank() } ?: "Episode",
+                    seriesAsin = info.asin,
+                    seasonId = local.second.seasonAsin,
+                    runtimeMs = (episodeInfo?.runtimeSeconds ?: 0).toLong() * 1000L,
+                    watchProgressMs = local.second.positionMs
+                )
+                onResumeEpisodeClicked(episode)
+            }
         }
     }
 

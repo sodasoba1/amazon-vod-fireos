@@ -196,6 +196,74 @@
 
     </LinearLayout>
 
+    <!-- Programme synopsis shown while playback is intentionally paused. -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/card_pause_info"
+        android:layout_width="460dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="28dp"
+        android:layout_marginTop="36dp"
+        android:visibility="gone"
+        app:cardBackgroundColor="#E6162029"
+        app:cardCornerRadius="10dp"
+        app:cardElevation="6dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="16dp">
+
+            <ImageView
+                android:id="@+id/iv_pause_poster"
+                android:layout_width="84dp"
+                android:layout_height="116dp"
+                android:contentDescription=""
+                android:scaleType="centerCrop" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tv_pause_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:maxLines="2"
+                    android:ellipsize="end"
+                    android:textColor="#FFFFFF"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tv_pause_metadata"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="5dp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textColor="#B9C8D1"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/tv_pause_synopsis"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="9dp"
+                    android:maxLines="4"
+                    android:ellipsize="end"
+                    android:textColor="#E2E8ED"
+                    android:textSize="13sp" />
+
+            </LinearLayout>
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
     <!-- Seek-scrub thumbnail preview — shown above the seekbar while user scrubs left/right -->
     <androidx.cardview.widget.CardView
         android:id="@+id/card_seek_thumbnail"

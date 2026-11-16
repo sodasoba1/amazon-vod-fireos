@@ -18,7 +18,8 @@ object ProgressRepository {
         val positionMs: Long,
         val runtimeMs: Long,
         val seriesAsin: String = "",
-        val seasonAsin: String = ""
+        val seasonAsin: String = "",
+        val updatedAtMs: Long = 0L
     )
 
     private val gson = Gson()
@@ -51,10 +52,30 @@ object ProgressRepository {
             for ((asin, progress) in serverProgress) {
                 // Repository contract: server wins on refresh. Local writes only become
                 // authoritative again during the active playback session after refresh.
-                progressMap[asin] = ProgressEntry(progress.first, progress.second)
+                val existing = progressMap[asin]
+                progressMap[asin] = ProgressEntry(
+                    positionMs = progress.first,
+                    runtimeMs = progress.second,
+                    seriesAsin = existing?.seriesAsin.orEmpty(),
+                    seasonAsin = existing?.seasonAsin.orEmpty(),
+                    updatedAtMs = existing?.updatedAtMs ?: 0L
+                )
             }
             inProgressItems = serverInProgressItems.map { item ->
-                val entry = progressMap[item.asin]
+                val existing = progressMap[item.asin]
+                val entry = if (existing != null) {
+                    existing.copy(
+                        seriesAsin = existing.seriesAsin.ifBlank { item.seriesAsin },
+                        seasonAsin = existing.seasonAsin.ifBlank { item.seasonId }
+                    ).also { progressMap[item.asin] = it }
+                } else if (item.watchProgressMs > 0L) {
+                    ProgressEntry(
+                        positionMs = item.watchProgressMs,
+                        runtimeMs = item.runtimeMs,
+                        seriesAsin = item.seriesAsin,
+                        seasonAsin = item.seasonId
+                    ).also { progressMap[item.asin] = it }
+                } else null
                 item.copy(
                     watchProgressMs = entry?.positionMs ?: item.watchProgressMs,
                     runtimeMs = if (entry != null && item.runtimeMs == 0L) entry.runtimeMs else item.runtimeMs
@@ -72,7 +93,7 @@ object ProgressRepository {
         if (asin.isBlank() || posMs <= 0L) return
         synchronized(this) {
             val normalizedPos = if (durMs > 0L && posMs >= durMs * 9 / 10) -1L else posMs
-            progressMap[asin] = ProgressEntry(normalizedPos, durMs.coerceAtLeast(0L), seriesAsin, seasonAsin)
+            progressMap[asin] = ProgressEntry(normalizedPos, durMs.coerceAtLeast(0L), seriesAsin, seasonAsin, System.currentTimeMillis())
             persistAll()
         }
     }
@@ -92,15 +113,17 @@ object ProgressRepository {
         return progressMap.filterValues { entry -> entry.positionMs > 0L }
     }
 
-    /** Returns the local progress entry (asin, entry) with the highest positionMs for the given
-     *  series ASIN — or null if none exists. Used by DetailActivity to surface a series resume
-     *  CTA even before a server refresh has populated inProgressItems. */
+    /** Returns the most recently updated local in-progress episode for a series.
+     *  Older cache entries without a timestamp fall back to the furthest position. */
     fun getLocalProgressForSeries(seriesAsin: String): Pair<String, ProgressEntry>? {
         ensureInitialized()
-        return progressMap.entries
+        val candidates = progressMap.entries
             .filter { (_, entry) -> entry.seriesAsin == seriesAsin && entry.positionMs > 0L }
-            .maxByOrNull { (_, entry) -> entry.positionMs }
-            ?.let { (asin, entry) -> Pair(asin, entry) }
+        val selected = candidates
+            .filter { (_, entry) -> entry.updatedAtMs > 0L }
+            .maxByOrNull { (_, entry) -> entry.updatedAtMs }
+            ?: candidates.maxByOrNull { (_, entry) -> entry.positionMs }
+        return selected?.let { (asin, entry) -> Pair(asin, entry) }
     }
 
     private fun ensureInitialized() {

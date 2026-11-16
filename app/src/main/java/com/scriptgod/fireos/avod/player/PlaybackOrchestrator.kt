@@ -37,6 +37,7 @@ import com.scriptgod.fireos.avod.auth.AmazonAuthService
 import com.scriptgod.fireos.avod.data.ProgressRepository
 import com.scriptgod.fireos.avod.drm.AmazonLicenseService
 import com.scriptgod.fireos.avod.model.ContentKind
+import com.scriptgod.fireos.avod.model.DetailInfo
 import com.scriptgod.fireos.avod.model.PlaybackInfo
 import com.scriptgod.fireos.avod.model.PlaybackQuality
 import kotlinx.coroutines.CoroutineScope
@@ -74,6 +75,7 @@ class PlaybackOrchestrator(
         fun onKeepScreenOn(on: Boolean)
         fun onTitleChanged(title: String)
         fun onQualityResolved(materialType: String, quality: PlaybackQuality)
+        fun onDetailInfoLoaded(detailInfo: DetailInfo?)
     }
 
     companion object {
@@ -92,6 +94,8 @@ class PlaybackOrchestrator(
     var player: ExoPlayer? = null
         private set
     var currentPlaybackInfo: PlaybackInfo? = null
+        private set
+    var currentDetailInfo: DetailInfo? = null
         private set
     var currentAsin: String = ""
     var currentSeriesAsin: String = ""
@@ -182,6 +186,9 @@ class PlaybackOrchestrator(
     fun loadAndPlay(asin: String, materialType: String, intentResumeMs: Long = 0L) {
         Log.w(TAG, "loadAndPlay asin=$asin type=$materialType season=$currentSeasonAsin")
         callbacks.showBuffering()
+        currentDetailInfo = null
+        callbacks.onDetailInfoLoaded(null)
+        bifThumbnailProvider.clear()
         stallWatchdog.stallRestartCount = 0
         audioRestartDone = false
         cdnRestartCount = 0
@@ -201,19 +208,26 @@ class PlaybackOrchestrator(
         playbackJob?.cancel()
         playbackJob = scope.launch {
             try {
-                val (info, detailAudioTracks) = withContext(Dispatchers.IO) {
+                val (info, detailInfo) = withContext(Dispatchers.IO) {
                     apiService.detectTerritory()
                     val playbackInfo = apiService.getPlaybackInfo(asin, materialType, quality, streamReporter.watchSessionId)
-                    val detailAudio = apiService.getDetailInfo(asin)?.audioTracks ?: emptyList()
-                    playbackInfo to detailAudio
+                    val detail = apiService.getDetailInfo(asin)
+                    playbackInfo to detail
                 }
+                currentDetailInfo = detailInfo
+                callbacks.onDetailInfoLoaded(detailInfo)
+                val detailAudioTracks = detailInfo?.audioTracks ?: emptyList()
                 val mergedTracks = (info.audioTracks + detailAudioTracks)
                     .distinctBy { "${it.displayName}|${it.languageCode}|${it.type}|${it.index}" }
                 audioTrackResolver.updateAvailableTracks(mergedTracks)
                 PlaybackLogger.logAvailableAudioTracks(TAG, "Merged audio metadata", mergedTracks)
                 correctedMpdContent = correctManifest(info)
                 currentPlaybackInfo = info
-                if (info.bifUrl.isNotEmpty()) bifThumbnailProvider.loadIndex(info.bifUrl)
+                if (info.bifUrl.isNotEmpty()) {
+                    bifThumbnailProvider.loadIndex(info.bifUrl, (detailInfo?.runtimeSeconds ?: 0).toLong() * 1000L)
+                } else {
+                    bifThumbnailProvider.clear()
+                }
                 setupPlayer(info, intentResumeMs = intentResumeMs)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch playback info: ${e.message}", e)
@@ -248,7 +262,11 @@ class PlaybackOrchestrator(
                 // The corrected MPD embeds absolute segment URLs, so it must follow the (possibly new) CDN.
                 correctedMpdContent = correctManifest(info)
                 currentPlaybackInfo = info
-                if (info.bifUrl.isNotEmpty()) bifThumbnailProvider.loadIndex(info.bifUrl)
+                if (info.bifUrl.isNotEmpty()) {
+                    bifThumbnailProvider.loadIndex(info.bifUrl, (currentDetailInfo?.runtimeSeconds ?: 0).toLong() * 1000L)
+                } else {
+                    bifThumbnailProvider.clear()
+                }
                 setupPlayer(info, startPositionOverride = posMs, stereoOnly = stereoOnly || stereoFallbackActive)
             } catch (e: Exception) {
                 Log.e(TAG, "PLAYER_RESTART: PRS re-fetch failed: ${e.message}", e)
@@ -276,6 +294,8 @@ class PlaybackOrchestrator(
 
     fun release() {
         stopResumeProgressUpdates()
+        bifThumbnailProvider.clear()
+        currentDetailInfo = null
         releasePlayer()
     }
 

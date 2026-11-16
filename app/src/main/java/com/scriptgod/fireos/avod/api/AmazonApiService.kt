@@ -238,7 +238,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
 
     /**
      * Primary search entry point for Phase 7. Handles all content categories:
-     * - ALL/PRIME/FREEVEE/LIVE: search then filter client-side
+     * - ALL/PRIME/MOVIES/SERIES: search then filter client-side
      * - CHANNELS: browse channels category
      * When query is empty, returns category browse page.
      */

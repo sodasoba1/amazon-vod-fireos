@@ -11,7 +11,7 @@ enum class ContentKind {
 
 enum class Availability {
     PRIME,
-    FREEVEE,
+    FREE_WITH_ADS,
     LIVE,
     UNKNOWN
 }
@@ -59,7 +59,7 @@ fun ContentItem.isFullyWatched(): Boolean = when {
 }
 
 fun ContentItem.primaryAvailabilityBadge(): String? = when {
-    availability == Availability.FREEVEE -> "Free with ads"
+    availability == Availability.FREE_WITH_ADS -> "Free with ads"
     availability == Availability.LIVE -> "Live"
     availability == Availability.PRIME || isIncludedWithPrime() -> "Prime"
     else -> null
