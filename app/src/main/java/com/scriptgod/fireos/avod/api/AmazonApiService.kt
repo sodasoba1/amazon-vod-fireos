@@ -830,7 +830,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
     fun getPlaybackInfo(
         asin: String,
         videoMaterialType: String = "Feature",
-        quality: PlaybackQuality = PlaybackQuality.HD,
+        quality: PlaybackQuality = PlaybackQuality.AUTO,
         watchSessionId: String? = null,
         cdnFailover: Boolean = false
     ): PlaybackInfo {
@@ -856,10 +856,9 @@ class AmazonApiService(private val authService: AmazonAuthService) {
             append("&videoMaterialType=").append(videoMaterialType)
             append("&desiredResources=PlaybackUrls,SubtitleUrls,ForcedNarratives,TransitionTimecodes,TrickplayUrls")
             append("&supportedDRMKeyScheme=DUAL_KEY")
-            // Quality params (decisions.md Decision 16)
+            // Advertise verified device capabilities; do not pin a server-side quality tier.
             append("&deviceVideoCodecOverride=").append(quality.codecOverride)
             append("&deviceHdrFormatsOverride=").append(quality.hdrOverride)
-            append("&deviceVideoQualityOverride=").append(quality.videoQuality)
             // Session context — mirrors Amazon's userWatchSessionId field
             if (!watchSessionId.isNullOrEmpty()) {
                 append("&userWatchSessionId=").append(watchSessionId)
@@ -868,7 +867,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
 
         val url = "$atvUrl/cdp/catalog/GetPlaybackResources?$params"
         Log.i(TAG, "GetPlaybackResources: asin=$asin materialType=$videoMaterialType")
-        Log.i(TAG, "Playback request settings: gascEnabled=$usePrimeVideo quality=${quality.videoQuality} codec=${quality.codecOverride} hdr=${quality.hdrOverride} drm=CENC streaming=DASH")
+        Log.i(TAG, "Playback capability advertisement: gascEnabled=$usePrimeVideo codec=${quality.codecOverride} hdr=${quality.hdrOverride} drm=CENC streaming=DASH")
 
         val request = Request.Builder()
             .url(url)
@@ -1075,7 +1074,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
     fun buildLicenseUrl(
         asin: String,
         deviceId: String,
-        quality: PlaybackQuality = PlaybackQuality.HD,
+        quality: PlaybackQuality = PlaybackQuality.AUTO,
         videoMaterialType: String = "Feature",
         watchSessionId: String? = null
     ): String {
@@ -1101,7 +1100,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
                "&supportedDRMKeyScheme=DUAL_KEY" +
                "&deviceVideoCodecOverride=${quality.codecOverride}" +
                "&deviceHdrFormatsOverride=${quality.hdrOverride}" +
-               "&deviceVideoQualityOverride=${quality.videoQuality}" +
+               "&retURL=True" +
                (if (!watchSessionId.isNullOrEmpty()) "&userWatchSessionId=$watchSessionId" else "")
     }
 
