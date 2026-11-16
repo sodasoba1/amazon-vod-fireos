@@ -102,9 +102,10 @@ class AboutActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.tv_hdr_badge).text = hdrLabel
         findViewById<TextView>(R.id.tv_quality_chip).text =
             if (profile.supportsUhd) "UHD-capable · automatic" else "Automatic stream selection"
+        val hdcpLabel = if (profile.supportsHdcp) "Yes" else "No"
         findViewById<TextView>(R.id.tv_h265_support).text =
             "Widevine: " + profile.widevineSecurityLevel +
-                "  ·  HDCP: " + if (profile.supportsHdcp) "Yes" else "Not confirmed" +
+                "  ·  HDCP: " + hdcpLabel +
                 "  ·  Display: " + profile.maxVideoWidth + "x" + profile.maxVideoHeight +
                 "  ·  HEVC Main L4: " + profile.supportsHevcMainL4 +
                 "  ·  Main10: " + (profile.supportsHevcMain10L4 || profile.supportsHevcMain10L5) +
