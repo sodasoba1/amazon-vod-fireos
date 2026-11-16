@@ -59,8 +59,6 @@ class PlaybackOrchestrator(
     private val authService: AmazonAuthService,
     private val apiService: AmazonApiService,
     private val scope: CoroutineScope,
-    /** Returns the connected display's supported Amazon HDR formats, or "None". */
-    private val supportedHdrFormats: () -> String,
     private val callbacks: Callbacks
 ) {
     interface Callbacks {

@@ -23,7 +23,6 @@ import com.scriptgod.fireos.avod.auth.TokenStore
 import com.scriptgod.fireos.avod.data.ProgressRepository
 import com.scriptgod.fireos.avod.model.PlaybackQuality
 import com.scriptgod.fireos.avod.player.BifThumbnailProvider
-import com.scriptgod.fireos.avod.player.DeviceCapabilities
 import com.scriptgod.fireos.avod.player.PlaybackOrchestrator
 import com.scriptgod.fireos.avod.player.SeekPreviewController
 import com.scriptgod.fireos.avod.player.TrackMenuController
@@ -133,7 +132,6 @@ class PlayerActivity : AppCompatActivity() {
             authService      = authService,
             apiService       = apiService,
             scope            = scope,
-            supportedHdrFormats = ::supportedHdrFormats,
             callbacks        = orchestratorCallbacks
         )
         orchestrator.currentAsin       = asin
@@ -453,16 +451,6 @@ class PlayerActivity : AppCompatActivity() {
         trackButtons.visibility = View.GONE
         tvError.text = "Playback unavailable\n${VideoFormatLabeler.friendlyError(message)}"
         tvError.visibility = View.VISIBLE
-    }
-
-    /** Returns only the HDR formats Amazon accepts and the connected display reports. */
-    @Suppress("DEPRECATION")
-    private fun supportedHdrFormats(): String {
-        val hdrTypes = windowManager.defaultDisplay.hdrCapabilities?.supportedHdrTypes ?: intArrayOf()
-        return DeviceCapabilities.supportedHdrFormats(hdrTypes)
-            .takeIf { it.isNotEmpty() }
-            ?.joinToString(",")
-            ?: "None"
     }
 
     private fun applyDeviceOverlayTuning() {
