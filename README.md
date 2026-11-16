@@ -1,4 +1,4 @@
-# ScriptGod's FireOS AmazonVOD
+# AVOD for Fire OS
 
 > A native FireOS app that replaces Amazon's built-in Prime Video client — ad-free, no root required. Built by reverse-engineering the official FireTV APK and Amazon's internal API. Full D-pad navigation, Widevine DRM playback, watchlist and continue-watching support.
 
@@ -60,7 +60,6 @@ _(see [background story](dev/background.story/story-funny.md))_
 - **Continue Watching row** — first rail on the home screen, built from centralized `ProgressRepository` data; shows amber progress bars and remaining-time subtitles; hero strip overrides to "X% watched · Y min left" when CW is active; bypasses source/type filters; direct-play passes the current resume position explicitly into the player
 - **Search** with instant results
 - **Filter** by source (All / Prime) and type (Movies / Series) — filters combine independently
-- **Freevee section** (territory-dependent)
 - **D-pad navigation** optimized for Fire TV remote
 
 ### Content Detail Page
