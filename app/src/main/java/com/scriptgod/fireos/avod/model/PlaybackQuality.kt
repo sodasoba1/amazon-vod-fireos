@@ -8,6 +8,9 @@ data class PlaybackQuality(
     val codecOverride: String,
     val hdrOverride: String
 ) {
+    fun amazonCapabilityQueryString(): String =
+        "&deviceVideoCodecOverride=$codecOverride&deviceHdrFormatsOverride=$hdrOverride"
+
     companion object {
         val AUTO = PlaybackQuality(codecOverride = "H264", hdrOverride = "None")
     }

@@ -857,8 +857,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
             append("&desiredResources=PlaybackUrls,SubtitleUrls,ForcedNarratives,TransitionTimecodes,TrickplayUrls")
             append("&supportedDRMKeyScheme=DUAL_KEY")
             // Advertise verified device capabilities; do not pin a server-side quality tier.
-            append("&deviceVideoCodecOverride=").append(quality.codecOverride)
-            append("&deviceHdrFormatsOverride=").append(quality.hdrOverride)
+            append(quality.amazonCapabilityQueryString())
             // Session context — mirrors Amazon's userWatchSessionId field
             if (!watchSessionId.isNullOrEmpty()) {
                 append("&userWatchSessionId=").append(watchSessionId)
@@ -1098,8 +1097,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
                "&videoMaterialType=$videoMaterialType" +
                "&desiredResources=Widevine2License" +
                "&supportedDRMKeyScheme=DUAL_KEY" +
-               "&deviceVideoCodecOverride=${quality.codecOverride}" +
-               "&deviceHdrFormatsOverride=${quality.hdrOverride}" +
+               quality.amazonCapabilityQueryString() +
                "&retURL=True" +
                (if (!watchSessionId.isNullOrEmpty()) "&userWatchSessionId=$watchSessionId" else "")
     }
