@@ -87,7 +87,6 @@ class PlaybackOrchestrator(
         private const val RESTORE_PROBE_INTERVAL_MS = 60_000L
         private const val PREF_AUDIO_PASSTHROUGH        = "audio_passthrough"
         private const val PREF_AUDIO_PASSTHROUGH_WARNED = "audio_passthrough_warned"
-        private const val PREF_WIDEVINE_L3_WARNED       = "widevine_l3_warned"
         private val WIDEVINE_UUID = UUID.fromString("edef8ba9-79d6-4ace-a3c8-27dcd51d21ed")
     }
 
@@ -101,7 +100,7 @@ class PlaybackOrchestrator(
     var currentSeasonAsin: String = ""
     var currentMaterialType: String = "Feature"
         private set
-    var currentQuality: PlaybackQuality = PlaybackQuality.HD
+    var currentQuality: PlaybackQuality = PlaybackQuality.AUTO
         private set
     var currentVideoBitrateKbps: Int = 0
         private set
@@ -199,7 +198,7 @@ class PlaybackOrchestrator(
         currentMaterialType = materialType
         currentQuality = quality
         callbacks.onQualityResolved(materialType, quality)
-        Log.i(TAG, "Playback quality: ${quality.videoQuality} codec=${quality.codecOverride} hdr=${quality.hdrOverride}")
+        Log.i(TAG, "Automatic negotiation: codec=" + quality.codecOverride + " hdr=" + quality.hdrOverride)
 
         playbackJob?.cancel()
         playbackJob = scope.launch {
@@ -312,37 +311,14 @@ class PlaybackOrchestrator(
     // Private helpers
     // -------------------------------------------------------------------------
 
-    @Suppress("DEPRECATION")
     private fun resolveQuality(): PlaybackQuality {
-        if (DeviceCapabilities.widevineSecurityLevel() != "L1") {
-            Log.w(TAG, "Widevine L3 detected — forcing SD quality (HD requires L1 + HDCP)")
-            val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-            if (!prefs.getBoolean(PREF_WIDEVINE_L3_WARNED, false)) {
-                prefs.edit().putBoolean(PREF_WIDEVINE_L3_WARNED, true).apply()
-                Toast.makeText(context, "Widevine L3 device — SD quality only (HD requires hardware DRM)", Toast.LENGTH_LONG).show()
-            }
-            return PlaybackQuality.SD
-        }
-        val pref = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-            .getString(PlaybackQuality.PREF_KEY, null)
-        val requested = PlaybackQuality.fromPrefValue(pref)
-        if (requested.videoQuality == "UHD") {
-            if (!DeviceCapabilities.deviceSupportsH265()) {
-                Toast.makeText(context, "H265 not supported — using HD H264", Toast.LENGTH_LONG).show()
-                return PlaybackQuality.HD
-            }
-            val hdrOverride = supportedHdrFormats().ifBlank { "None" }
-            if (hdrOverride == "None") {
-                Log.i(TAG, "Display reports no HDR10/Dolby Vision output; requesting UHD with HDR disabled")
-                return PlaybackQuality.UHD_SDR
-            }
-            return PlaybackQuality.UHD_HDR.copy(hdrOverride = hdrOverride)
-        }
-        if (requested == PlaybackQuality.HD_H265 && !DeviceCapabilities.deviceSupportsH265()) {
-            Toast.makeText(context, "H265 not supported — using HD H264", Toast.LENGTH_LONG).show()
-            return PlaybackQuality.HD
-        }
-        return requested
+        val profile = DeviceCapabilities.inspect(context)
+        val codecOverride = DeviceCapabilities.codecOverride(profile.supportsHevcMainL4)
+        val hdrOverride = profile.amazonHdrFormats().joinToString(",").ifBlank { "None" }
+        Log.i(TAG, "Automatic negotiation profile: drm=" + profile.widevineSecurityLevel +
+            " hdcp=" + profile.supportsHdcp + " display=" + profile.maxVideoWidth + "x" +
+            profile.maxVideoHeight + " uhdCapable=" + profile.supportsUhd)
+        return PlaybackQuality(codecOverride = codecOverride, hdrOverride = hdrOverride)
     }
 
     private fun redactUrlForLog(raw: String?): String {

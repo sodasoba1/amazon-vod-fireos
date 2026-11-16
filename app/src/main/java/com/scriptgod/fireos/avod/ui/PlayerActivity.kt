@@ -435,17 +435,9 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun updatePlaybackStatus(materialType: String, quality: PlaybackQuality) {
         val materialLabel = if (materialType == "Trailer") "Trailer" else "Playback"
-        val qualityLabel = when {
-            quality.videoQuality == "UHD" && quality.hdrOverride == "None" ->
-                "4K UHD · SDR request"
-            quality.videoQuality == "UHD" ->
-                "4K UHD · ${quality.hdrOverride} request"
-            quality == PlaybackQuality.HD_H265 -> "HD H265 preset"
-            quality == PlaybackQuality.HD -> "HD H264 preset"
-            quality == PlaybackQuality.SD -> "SD (Widevine L3)"
-            else -> "HD H264 preset"
-        }
-        tvPlaybackStatus.text = "$materialLabel  ·  $qualityLabel"
+        val codecLabel = if (quality.codecOverride.contains("H265")) "H264 / HEVC eligible" else "H264"
+        val hdrLabel = if (quality.hdrOverride == "None") "HDR selected by service" else "HDR eligible: " + quality.hdrOverride
+        tvPlaybackStatus.text = materialLabel + "  ·  Automatic negotiation  ·  " + codecLabel + "  ·  " + hdrLabel
     }
 
     private fun updatePlaybackWakeState(on: Boolean) {
