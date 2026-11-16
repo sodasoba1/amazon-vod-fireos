@@ -5,7 +5,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.StringReader
 import java.io.StringWriter
-import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 import javax.xml.transform.TransformerFactory
 import javax.xml.transform.dom.DOMSource
@@ -64,17 +63,12 @@ object MpdTimingCorrector {
             setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
             setFeature("http://xml.org/sax/features/external-general-entities", false)
             setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            runCatching { setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "") }
-            runCatching { setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "") }
         }
         return factory.newDocumentBuilder().parse(InputSource(StringReader(xml)))
     }
 
     private fun serializeXml(doc: Document): String {
-        val factory = TransformerFactory.newInstance()
-        runCatching { factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "") }
-        runCatching { factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "") }
-        val transformer = factory.newTransformer()
+        val transformer = TransformerFactory.newInstance().newTransformer()
         transformer.setOutputProperty(javax.xml.transform.OutputKeys.OMIT_XML_DECLARATION, "no")
         transformer.setOutputProperty(javax.xml.transform.OutputKeys.INDENT, "no")
         val writer = StringWriter()

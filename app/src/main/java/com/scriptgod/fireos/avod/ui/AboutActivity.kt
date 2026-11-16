@@ -10,7 +10,6 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.gson.Gson
 import com.scriptgod.fireos.avod.R
 import com.scriptgod.fireos.avod.data.ProgressRepository
-import com.scriptgod.fireos.avod.model.PlaybackQuality
 import com.scriptgod.fireos.avod.player.DeviceCapabilities
 import com.scriptgod.fireos.avod.model.TokenData
 import java.io.File
@@ -85,79 +84,35 @@ class AboutActivity : AppCompatActivity() {
         )
     }
 
-    @Suppress("DEPRECATION")
     private fun setupQualitySection() {
-        // H265 decoder + display HDR capability indicators
-        val supportsH265 = DeviceCapabilities.deviceSupportsH265()
-        val widevineLevel = DeviceCapabilities.widevineSecurityLevel()
-        val supportsWidevineL1 = widevineLevel == "L1"
-        val hdrTypes = windowManager.defaultDisplay.hdrCapabilities?.supportedHdrTypes ?: intArrayOf()
-        val hdrFormats = DeviceCapabilities.supportedHdrFormats(hdrTypes)
-        val hdrLabel = when {
-            hdrFormats.contains("DolbyVision") && hdrFormats.contains("Hdr10") -> "Yes (DV + HDR10)"
-            hdrFormats.contains("DolbyVision") -> "Yes (Dolby Vision)"
-            hdrFormats.contains("Hdr10") -> "Yes (HDR10)"
-            else -> "No HDR10/Dolby Vision"
-        }
-        val prefs = getSharedPreferences("settings", MODE_PRIVATE)
-        val btnHd     = findViewById<Button>(R.id.btn_quality_hd)
+        val profile = DeviceCapabilities.inspect(this)
+        val hdrFormats = profile.amazonHdrFormats()
+        val hdrLabel = if (hdrFormats.isEmpty()) "No HDR output" else hdrFormats.joinToString(" + ")
+
+        val btnHd = findViewById<Button>(R.id.btn_quality_hd)
         val btnHdH265 = findViewById<Button>(R.id.btn_quality_hd_h265)
-        val btnUhd    = findViewById<Button>(R.id.btn_quality_uhd)
-        val tvNote    = findViewById<TextView>(R.id.tv_quality_note)
-        val tvCodecBadge = findViewById<TextView>(R.id.tv_codec_badge)
-        val tvHdrBadge = findViewById<TextView>(R.id.tv_hdr_badge)
-        val tvQualityChip = findViewById<TextView>(R.id.tv_quality_chip)
+        val btnUhd = findViewById<Button>(R.id.btn_quality_uhd)
+        // Quality tiers are now negotiated by Amazon. Remove the old fixed-tier controls.
+        btnHd.visibility = android.view.View.GONE
+        btnHdH265.visibility = android.view.View.GONE
+        btnUhd.visibility = android.view.View.GONE
 
-        val supportsDisplayHdr = hdrFormats.isNotEmpty()
-        tvCodecBadge.text = if (supportsH265) "HEVC ready" else "HEVC unavailable"
-        tvHdrBadge.text = if (supportsDisplayHdr) "HDR: ${hdrFormats.joinToString(" + ")}" else "No HDR10/DV output"
-        tvQualityChip.text = when {
-            !supportsWidevineL1 -> "SD only · Widevine L3"
-            supportsH265 && supportsDisplayHdr -> "4K HDR capable"
-            supportsH265 -> "4K SDR capable"
-            else -> "HD only"
-        }
+        findViewById<TextView>(R.id.tv_codec_badge).text =
+            if (profile.supportsHevcMainL4) "Secure adaptive HEVC ready" else "H264 baseline"
+        findViewById<TextView>(R.id.tv_hdr_badge).text = hdrLabel
+        findViewById<TextView>(R.id.tv_quality_chip).text =
+            if (profile.supportsUhd) "UHD-capable · automatic" else "Automatic stream selection"
         findViewById<TextView>(R.id.tv_h265_support).text =
-            "Widevine: $widevineLevel  ·  HEVC: ${if (supportsH265) "Yes" else "No"}  ·  Display HDR: $hdrLabel"
-
-        btnHd.isEnabled = supportsWidevineL1
-        btnHdH265.isEnabled = supportsH265 && supportsWidevineL1
-        btnUhd.isEnabled = supportsH265 && supportsWidevineL1
-        btnHd.alpha = if (supportsWidevineL1) 1f else 0.45f
-        btnHdH265.alpha = if (supportsH265 && supportsWidevineL1) 1f else 0.45f
-        btnUhd.alpha = if (supportsH265 && supportsWidevineL1) 1f else 0.45f
-
-        tvNote.text = when {
-            !supportsWidevineL1 ->
-                "Widevine L3 is active. Amazon HD/UHD requests require Widevine L1, so playback is restricted to SD regardless of the saved quality preference."
-            !supportsH265 ->
-                "This device has no HEVC decoder, so the UHD request is unavailable. HD H264 remains available."
-            !supportsDisplayHdr ->
-                "The 4K preset still requests UHD, but sends no HDR formats because the display reports neither HDR10 nor Dolby Vision. Amazon may return a lower tier if UHD SDR is unavailable."
-            else ->
-                "The 4K preset requests UHD and only the HDR formats reported by the connected display. Amazon may still return a lower tier depending on title rights, DRM and availability."
-        }
-
-        fun updateButtons(selected: PlaybackQuality) {
-            btnHd.isSelected = selected == PlaybackQuality.HD
-            btnHdH265.isSelected = selected == PlaybackQuality.HD_H265
-            btnUhd.isSelected = selected == PlaybackQuality.UHD_HDR
-        }
-
-        // Apply initial highlight
-        val initialQuality = PlaybackQuality.fromPrefValue(prefs.getString(PlaybackQuality.PREF_KEY, null))
-        updateButtons(initialQuality)
-
-        fun save(q: PlaybackQuality) {
-            prefs.edit().putString(PlaybackQuality.PREF_KEY, PlaybackQuality.toPrefValue(q)).apply()
-            updateButtons(q)
-            Toast.makeText(this, "Quality set to ${btnLabel(q)} — takes effect on next playback", Toast.LENGTH_SHORT).show()
-        }
-
-        btnHd.setOnClickListener     { save(PlaybackQuality.HD) }
-        btnHdH265.setOnClickListener { save(PlaybackQuality.HD_H265) }
-        btnUhd.setOnClickListener    { save(PlaybackQuality.UHD_HDR) }
-
+            "Widevine: " + profile.widevineSecurityLevel +
+                "  ·  HDCP: " + if (profile.supportsHdcp) "Yes" else "Not confirmed" +
+                "  ·  Display: " + profile.maxVideoWidth + "x" + profile.maxVideoHeight +
+                "  ·  HEVC Main L4: " + profile.supportsHevcMainL4 +
+                "  ·  Main10: " + (profile.supportsHevcMain10L4 || profile.supportsHevcMain10L5) +
+                "  ·  AV1 Main10: " + (profile.supportsAv1Main10L4 || profile.supportsAv1Main10L5)
+        findViewById<TextView>(R.id.tv_quality_note).text =
+            "Quality is not pinned to SD, HD or UHD. AVOD advertises the secure codecs and HDR formats " +
+                "it can verify; Amazon selects the eligible stream ladder and Media3 adapts between " +
+                "representations. Actual quality still depends on the title, account, DRM and network."
     }
 
     private fun setupAudioPassthroughSection() {
@@ -217,12 +172,6 @@ class AboutActivity : AppCompatActivity() {
 
         btnOff.setOnClickListener { save(false) }
         btnOn.setOnClickListener  { save(true)  }
-    }
-
-    private fun btnLabel(q: PlaybackQuality) = when {
-        q.videoQuality == "UHD" -> "4K"
-        q == PlaybackQuality.HD_H265 -> "H265"
-        else -> "HD H264"
     }
 
     private fun performLogout() {
