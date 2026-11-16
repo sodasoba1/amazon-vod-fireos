@@ -57,7 +57,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvSearchHint: TextView
     private lateinit var tvSearchCount: TextView
     private lateinit var btnHome: Button
-    private lateinit var btnFreevee: Button
     private lateinit var btnWatchlist: Button
     private lateinit var btnLibrary: Button
     private lateinit var btnAbout: Button
@@ -129,7 +128,6 @@ class MainActivity : AppCompatActivity() {
         tvSearchHint = findViewById(R.id.tv_search_hint)
         tvSearchCount = findViewById(R.id.tv_search_count)
         btnHome = findViewById(R.id.btn_home)
-        btnFreevee = findViewById(R.id.btn_freevee)
         btnWatchlist = findViewById(R.id.btn_watchlist)
         btnLibrary = findViewById(R.id.btn_library)
         btnAbout = findViewById(R.id.btn_about)
@@ -221,7 +219,6 @@ class MainActivity : AppCompatActivity() {
 
         // Navigation buttons
         btnHome.setOnClickListener { loadNav("home") }
-        btnFreevee.setOnClickListener { loadNav("freevee") }
         btnWatchlist.setOnClickListener { loadNav("watchlist") }
         btnLibrary.setOnClickListener { loadNav("library") }
         btnAbout.setOnClickListener { UiTransitions.open(this, Intent(this, AboutActivity::class.java)) }
@@ -465,19 +462,7 @@ class MainActivity : AppCompatActivity() {
 
         switchToGridMode()
 
-        // Freevee — no filters
-        showLoading()
-        lifecycleScope.launch {
-            try {
-                val items = withContext(Dispatchers.IO) {
-                    apiService.getFreeveePage()
-                }
-                showItems(items)
-            } catch (e: Exception) {
-                Log.i(TAG, "Error loading page $page", e)
-                showError("Error: ${e.message}")
-            }
-        }
+
     }
 
     // --- Nav button highlight ---
@@ -485,7 +470,6 @@ class MainActivity : AppCompatActivity() {
     private fun updateNavButtonHighlight() {
         listOf(
             btnHome to "home",
-            btnFreevee to "freevee",
             btnWatchlist to "watchlist",
             btnLibrary to "library"
         ).forEach { (btn, page) ->
@@ -540,7 +524,6 @@ class MainActivity : AppCompatActivity() {
     private fun setNavFocusTarget(targetId: Int) {
         val cardFocusTarget = if (targetId == R.id.recycler_view) R.id.btn_home else targetId
         btnHome.nextFocusDownId = targetId
-        btnFreevee.nextFocusDownId = targetId
         btnWatchlist.nextFocusDownId = targetId
         btnLibrary.nextFocusDownId = targetId
         btnSearchIcon.nextFocusDownId = targetId
@@ -554,7 +537,6 @@ class MainActivity : AppCompatActivity() {
         val navUpTarget = when (currentNavPage) {
             "watchlist" -> R.id.btn_watchlist
             "library" -> R.id.btn_library
-            "freevee" -> R.id.btn_freevee
             else -> R.id.btn_home
         }
         val filterButtons = listOf(btnCatAll, btnCatPrime, btnTypeAll, btnCatMovies, btnCatSeries)
