@@ -4,19 +4,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class PlaybackQualityTest {
-    @Test
-    fun dynamicUhdHdrOverrideRetainsUhdPreference() {
-        assertEquals("UHD_HDR", PlaybackQuality.toPrefValue(PlaybackQuality.UHD_HDR.copy(hdrOverride = "Hdr10")))
+    @Test fun automaticProfileHasSafeCodecAndHdrFallbacks() {
+        assertEquals("H264", PlaybackQuality.AUTO.codecOverride)
+        assertEquals("None", PlaybackQuality.AUTO.hdrOverride)
     }
 
-    @Test
-    fun uhdSdrFallbackRetainsUhdPreference() {
-        assertEquals("UHD_HDR", PlaybackQuality.toPrefValue(PlaybackQuality.UHD_SDR))
-    }
-
-    @Test
-    fun hdPresetsKeepTheirOwnPreferenceValues() {
-        assertEquals("HD", PlaybackQuality.toPrefValue(PlaybackQuality.HD))
-        assertEquals("HD_H265", PlaybackQuality.toPrefValue(PlaybackQuality.HD_H265))
+    @Test fun capabilityDeclarationsCanBeCombinedWithoutAFixedTier() {
+        val profile = PlaybackQuality("H264,H265", "DolbyVision,Hdr10")
+        assertEquals("H264,H265", profile.codecOverride)
+        assertEquals("DolbyVision,Hdr10", profile.hdrOverride)
     }
 }
