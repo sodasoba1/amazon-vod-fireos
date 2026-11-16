@@ -59,7 +59,7 @@ fun ContentItem.isFullyWatched(): Boolean = when {
 }
 
 fun ContentItem.primaryAvailabilityBadge(): String? = when {
-    availability == Availability.FREEVEE -> "Freevee"
+    availability == Availability.FREEVEE -> "Free with ads"
     availability == Availability.LIVE -> "Live"
     availability == Availability.PRIME || isIncludedWithPrime() -> "Prime"
     else -> null
