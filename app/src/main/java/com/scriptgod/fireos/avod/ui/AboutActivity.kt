@@ -35,7 +35,7 @@ class AboutActivity : AppCompatActivity() {
 
         // Version
         val versionName = packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown"
-        findViewById<TextView>(R.id.tv_version).text = "Inspect ScriptGod's AmazonVOD for FireOS, playback capability, and the active device token."
+        findViewById<TextView>(R.id.tv_version).text = "AVOD for Fire OS — Amazon Video on Demand, playback capabilities, and active device information."
         findViewById<TextView>(R.id.tv_version_value).text = versionName
         findViewById<TextView>(R.id.tv_package).text = packageName
         findViewById<TextView>(R.id.tv_version_chip).text = "Version $versionName"
