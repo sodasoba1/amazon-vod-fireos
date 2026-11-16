@@ -5,8 +5,6 @@ import com.scriptgod.fireos.avod.auth.AmazonAuthService
 import com.scriptgod.fireos.avod.model.ContentItem
 import com.scriptgod.fireos.avod.model.ContentRail
 import com.scriptgod.fireos.avod.model.DetailInfo
-import com.scriptgod.fireos.avod.model.Availability
-import com.scriptgod.fireos.avod.model.ContentKind
 import com.scriptgod.fireos.avod.model.AudioTrack
 import com.scriptgod.fireos.avod.model.PlaybackInfo
 import com.scriptgod.fireos.avod.model.PlaybackQuality
@@ -269,125 +267,6 @@ class AmazonApiService(private val authService: AmazonAuthService) {
     private fun isEpisodeType(contentType: String): Boolean =
         contentType.equals("Episode", ignoreCase = true) ||
         contentType.equals("TVEpisode", ignoreCase = true)
-
-    /** Kodi catalog device type IDs (network.py:252-255) */
-    private val CATALOG_DEVICE_TYPE_IDS = listOf(
-        "firmware=fmw:28-app:5.2.3&deviceTypeID=A3SSWQ04XYPXBH",
-        "firmware=fmw:26-app:3.0.265.20347&deviceTypeID=A1S15DUFSI8AUG",
-        "firmware=default&deviceTypeID=A1FYY15VCM5WG1"
-    )
-
-    /**
-     * Returns Freevee (free ad-supported) content.
-     * Uses catalog Browse with OfferGroups=B0043YVHMY for server-side filtering.
-     * Falls back to home page with client-side filter for non-Prime content.
-     * Note: Freevee may not be available in all territories (e.g. DE).
-     */
-    fun getFreeveePage(): List<ContentItem> {
-        // Primary: catalog Browse with OfferGroups (works in US/UK territories)
-        val catalogItems = getCatalogBrowse("OfferGroups=B0043YVHMY&NumberOfResults=40&StartIndex=0&Detailed=T")
-        if (catalogItems.isNotEmpty()) {
-            Log.i(TAG, "Freevee via catalog Browse: ${catalogItems.size} items")
-            return catalogItems
-        }
-
-        // Freevee not available in this territory
-        Log.i(TAG, "Freevee catalog not available in this territory")
-        return emptyList()
-    }
-
-    /**
-     * Fetches content via the catalog Browse endpoint (Kodi: network.py:242-286).
-     * Uses Kodi-style device TypeIDs and response format (message.body.titles[]).
-     * Tries multiple device TypeIDs until results are found.
-     */
-    private fun getCatalogBrowse(query: String): List<ContentItem> {
-        val did = deviceId()
-        for (typeId in CATALOG_DEVICE_TYPE_IDS) {
-            val parameter = "$typeId&deviceID=$did&format=json&version=2&formatVersion=3&marketplaceId=$marketplaceId"
-            val url = "$atvUrl/cdp/catalog/Browse?$parameter&IncludeAll=T&AID=1&$query"
-
-            val request = Request.Builder().url(url).get().build()
-            Log.i(TAG, "Catalog Browse GET: $url")
-            try {
-                val response = client.newCall(request).execute()
-                val body = response.body?.string() ?: continue
-
-                if (!response.isSuccessful) {
-                    Log.i(TAG, "Catalog Browse failed: HTTP ${response.code}, trying next TypeID")
-                    continue
-                }
-
-                val items = parseCatalogBrowseItems(body)
-                if (items.isNotEmpty()) return items
-            } catch (e: Exception) {
-                Log.i(TAG, "Catalog Browse error: ${e.message}, trying next TypeID")
-            }
-        }
-        return emptyList()
-    }
-
-    /**
-     * Parses the catalog Browse response format (Kodi: atv_api.py:312-370).
-     * Structure: message.body.titles[] with titleId, title, contentType, heroUrl, formats[].images[].uri
-     */
-    private fun parseCatalogBrowseItems(json: String): List<ContentItem> {
-        val items = mutableListOf<ContentItem>()
-        try {
-            val root = gson.fromJson(json, JsonObject::class.java)
-            val message = root?.getAsJsonObject("message") ?: return emptyList()
-            val statusCode = message.safeString("statusCode")
-            if (statusCode != "SUCCESS") {
-                Log.i(TAG, "Catalog Browse status: $statusCode")
-                return emptyList()
-            }
-            val bodyObj = message.getAsJsonObject("body") ?: return emptyList()
-            val titles = bodyObj.getAsJsonArray("titles") ?: return emptyList()
-
-            for (element in titles) {
-                val item = element.asJsonObject ?: continue
-                val asin = item.safeString("titleId") ?: continue
-                val title = item.safeString("title") ?: continue
-                val contentType = item.safeString("contentType") ?: "Feature"
-                val subtitle = item.safeString("regulatoryRating") ?: ""
-
-                // Image: formats[0].images[0].uri → heroUrl
-                val imageUrl = try {
-                    item.getAsJsonArray("formats")
-                        ?.get(0)?.asJsonObject
-                        ?.getAsJsonArray("images")
-                        ?.get(0)?.asJsonObject
-                        ?.safeString("uri")
-                } catch (_: Exception) { null }
-                    ?: item.safeString("heroUrl")
-                    ?: ""
-
-                items.add(ContentItem(
-                    asin = asin,
-                    title = title,
-                    subtitle = subtitle,
-                    imageUrl = imageUrl,
-                    contentType = contentType,
-                    contentId = asin,
-                    kind = when {
-                        isMovieContentType(contentType) -> ContentKind.MOVIE
-                        isSeriesContentType(contentType) -> ContentKind.SERIES
-                        isEpisodeContentType(contentType) -> ContentKind.EPISODE
-                        else -> ContentKind.OTHER
-                    },
-                    availability = Availability.FREEVEE,
-                    isPrime = false,
-                    isFreeWithAds = true,
-                    isLive = false,
-                    channelId = ""
-                ))
-            }
-        } catch (e: Exception) {
-            Log.i(TAG, "Error parsing catalog Browse response", e)
-        }
-        Log.i(TAG, "Catalog Browse parsed ${items.size} content items")
-        return items
-    }
 
     /**
      * Returns search suggestions by fetching search results and returning the first N titles.
