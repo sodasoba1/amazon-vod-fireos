@@ -97,14 +97,10 @@ class AboutActivity : AppCompatActivity() {
         val supportsUhd = hevc.supportsUhd
         val widevineLevel = DeviceCapabilities.widevineSecurityLevel()
         val supportsWidevineL1 = widevineLevel == "L1"
+        val hdrTypes = windowManager.defaultDisplay.hdrCapabilities?.supportedHdrTypes ?: intArrayOf()
         val displayReport = DeviceCapabilities.displayReport(windowManager.defaultDisplay)
         val hdrFormats = displayReport.hdrFormats
-        val hdrLabel = when {
-            hdrFormats.contains("DolbyVision") && hdrFormats.contains("Hdr10") -> "Yes (DV + HDR10)"
-            hdrFormats.contains("DolbyVision") -> "Yes (Dolby Vision)"
-            hdrFormats.contains("Hdr10") -> "Yes (HDR10)"
-            else -> "No HDR10/Dolby Vision"
-        }
+        val requestHdrFormats = DeviceCapabilities.supportedHdrFormats(hdrTypes)
         val prefs = getSharedPreferences("settings", MODE_PRIVATE)
         val btnHd     = findViewById<Button>(R.id.btn_quality_hd)
         val btnHdH265 = findViewById<Button>(R.id.btn_quality_hd_h265)
@@ -114,9 +110,9 @@ class AboutActivity : AppCompatActivity() {
         val tvHdrBadge = findViewById<TextView>(R.id.tv_hdr_badge)
         val tvQualityChip = findViewById<TextView>(R.id.tv_quality_chip)
 
-        val supportsDisplayHdr = hdrFormats.isNotEmpty()
+        val supportsDisplayHdr = requestHdrFormats.isNotEmpty()
         tvCodecBadge.text = if (supportsH265) "HEVC ready" else "HEVC unavailable"
-        tvHdrBadge.text = if (supportsDisplayHdr) "HDR: ${hdrFormats.joinToString(" + ")}" else "No HDR10/DV output"
+        tvHdrBadge.text = "Display: ${hdrFormats.joinToString(" + ").ifBlank { "SDR" }} · Request: ${requestHdrFormats.joinToString(" + ").ifBlank { "SDR" }}"
         tvQualityChip.text = when {
             !supportsWidevineL1 -> "SD only · Widevine L3"
             supportsUhd && supportsDisplayHdr -> "4K HDR capable"

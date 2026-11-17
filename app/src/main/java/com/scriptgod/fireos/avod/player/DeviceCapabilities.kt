@@ -146,7 +146,7 @@ object DeviceCapabilities {
     internal fun reportedHdrFormats(hdrTypes: IntArray): List<String> = buildList {
         if (Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION in hdrTypes) add("DolbyVision")
         if (Display.HdrCapabilities.HDR_TYPE_HDR10 in hdrTypes) add("Hdr10")
-        if (Build.VERSION.SDK_INT >= 29 && Display.HdrCapabilities.HDR_TYPE_HDR10_PLUS in hdrTypes) add("Hdr10Plus")
+        if (Display.HdrCapabilities.HDR_TYPE_HDR10_PLUS in hdrTypes) add("Hdr10Plus")
     }
 
     @Suppress("DEPRECATION")

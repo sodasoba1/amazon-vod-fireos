@@ -24,6 +24,13 @@ class DeviceCapabilitiesTest {
     }
 
     @Test
+    fun displayDiagnosticsReportHdr10PlusWithoutAddingItToAmazonRequest() {
+        val types = intArrayOf(Display.HdrCapabilities.HDR_TYPE_HDR10_PLUS)
+        assertEquals(listOf("Hdr10Plus"), DeviceCapabilities.reportedHdrFormats(types))
+        assertEquals(emptyList<String>(), DeviceCapabilities.supportedHdrFormats(types))
+    }
+
+    @Test
     fun uhdRequiresSecureAdaptiveLevelFiveDecoderAnd4kDimensions() {
         assertTrue(DeviceCapabilities.isUhdCapable(true, true, true, true))
         assertFalse(DeviceCapabilities.isUhdCapable(false, true, true, true))
