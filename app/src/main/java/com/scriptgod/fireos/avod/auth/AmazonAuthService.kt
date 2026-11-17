@@ -1,6 +1,7 @@
 package com.scriptgod.fireos.avod.auth
 
 import android.util.Log
+import android.os.Build
 import com.scriptgod.fireos.avod.model.TokenData
 import com.scriptgod.fireos.avod.model.TokenRefreshResponse
 import com.google.gson.Gson
@@ -25,13 +26,15 @@ class AmazonAuthService(private val tokenFile: File) {
     companion object {
         private const val TAG = "AmazonAuthService"
 
-        // Device fingerprint — SHIELD Android TV (common.py:55-58, login.py:551-560)
+        // Prime Video Android device type is the protocol identity; hardware and OS
+        // metadata must describe the actual Fire TV rather than StollD's test SHIELD.
         const val DEVICE_TYPE_ID = "A43PXU4ZN2AL1"
         const val APP_NAME = "com.amazon.avod.thirdpartyclient"
         const val APP_VERSION = "296016847"
-        const val DEVICE_MODEL = "mdarcy/nvidia/SHIELD Android TV"
-        const val OS_VERSION = "NVIDIA/mdarcy/mdarcy:11/RQ1A.210105.003/7094531_2971.7725:user/release-keys"
-        const val USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 11; SHIELD Android TV RQ1A.210105.003)"
+        val DEVICE_MODEL: String get() = Build.MODEL.ifBlank { "Android TV" }
+        val OS_VERSION: String get() = Build.VERSION.RELEASE.orEmpty()
+        val USER_AGENT: String
+            get() = "Dalvik/2.1.0 (Linux; U; Android ${Build.VERSION.RELEASE}; ${Build.MODEL})"
 
         private val AUTHENTICATED_API_HOSTS = setOf(
             "atv-ps-eu.amazon.de", "atv-ps-eu.amazon.co.uk",
@@ -63,6 +66,10 @@ class AmazonAuthService(private val tokenFile: File) {
             ?: throw IllegalStateException("Failed to parse .device-token")
     }
 
+    /** DTID persisted with this registration; older token files fall back to the known Android profile. */
+    val deviceTypeId: String
+        get() = tokenData.deviceTypeId?.takeIf { it.isNotBlank() } ?: DEVICE_TYPE_ID
+
     fun getAccessToken(): String = synchronized(this) {
         if (isExpired()) {
             Log.d(TAG, "Token expired, refreshing")
@@ -90,7 +97,7 @@ class AmazonAuthService(private val tokenFile: File) {
 
         val body = FormBody.Builder()
             .add("domain", "DeviceLegacy")
-            .add("device_type", DEVICE_TYPE_ID)
+            .add("device_type", deviceTypeId)
             .add("device_serial", current.deviceId)
             .add("app_name", APP_NAME)
             .add("app_version", APP_VERSION)
@@ -147,9 +154,11 @@ class AmazonAuthService(private val tokenFile: File) {
 
             val response = chain.proceed(authedRequest)
 
-            if (response.code == 401 || response.code == 403) {
+            // A 403 normally indicates entitlement, territory, device, or policy denial.
+            // Refresh only on 401 so an access denial is not masked by an unnecessary retry.
+            if (response.code == 401) {
                 response.close()
-                Log.d(TAG, "Got ${response.code}, refreshing token and retrying")
+                Log.d(TAG, "Got 401, refreshing token and retrying")
                 synchronized(this@AmazonAuthService) { refresh() }
                 val retryRequest = originalRequest.newBuilder()
                     .header("Authorization", "Bearer ${getAccessToken()}")

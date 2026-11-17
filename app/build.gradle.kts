@@ -14,6 +14,9 @@ val releaseSigningValues = listOf(
     releaseKeyPassword
 )
 val hasReleaseSigning = releaseSigningValues.all { !it.isNullOrBlank() }
+val stollDPlaybackApiV1 = providers.gradleProperty("stollDPlaybackApiV1").orNull?.let {
+    it.toBooleanStrictOrNull() ?: throw GradleException("stollDPlaybackApiV1 must be true or false")
+} ?: false
 if (releaseSigningValues.any { !it.isNullOrBlank() } && !hasReleaseSigning) {
     throw GradleException("Release signing is partially configured. Set all four RELEASE_* environment variables or none.")
 }
@@ -28,6 +31,7 @@ android {
         targetSdk = 34
         versionCode = (findProperty("versionCodeOverride") as? String)?.toIntOrNull() ?: 1
         versionName = (findProperty("versionNameOverride") as? String) ?: "1.0-dev"
+        buildConfigField("boolean", "STOLLD_PLAYBACK_API_V1", stollDPlaybackApiV1.toString())
     }
 
     signingConfigs {
@@ -63,6 +67,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 }
 

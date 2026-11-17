@@ -43,9 +43,11 @@ class AboutActivity : AppCompatActivity() {
         // Account info from token file
         val tokenFile = LoginActivity.findTokenFile(this)
         if (tokenFile != null) {
+            var token: TokenData? = null
             try {
-                val token = Gson().fromJson(tokenFile.readText(), TokenData::class.java)
-                val deviceId = token.deviceId
+                val loadedToken = Gson().fromJson(tokenFile.readText(), TokenData::class.java)
+                token = loadedToken
+                val deviceId = loadedToken.deviceId
                 val masked = if (deviceId.length > 12) deviceId.take(8) + "…" + deviceId.takeLast(4)
                              else deviceId
                 findViewById<TextView>(R.id.tv_device_id).text = masked
@@ -54,7 +56,9 @@ class AboutActivity : AppCompatActivity() {
             }
             findViewById<TextView>(R.id.tv_token_location).text = "app-private storage"
             findViewById<TextView>(R.id.tv_token_chip).text = "Token active"
-            findViewById<TextView>(R.id.tv_token_status).text = "A device token is present and the app can launch directly into the catalog."
+            val dtidLabel = token?.deviceTypeId?.takeIf { it.isNotBlank() } ?: "A43 legacy fallback"
+            findViewById<TextView>(R.id.tv_token_status).text =
+                "Amazon DTID: $dtidLabel\nA device token is present and the app can launch directly into the catalog."
         } else {
             findViewById<TextView>(R.id.tv_device_id).text = "no token"
             findViewById<TextView>(R.id.tv_token_location).text = "—"
@@ -88,17 +92,15 @@ class AboutActivity : AppCompatActivity() {
     @Suppress("DEPRECATION")
     private fun setupQualitySection() {
         // H265 decoder + display HDR capability indicators
-        val supportsH265 = DeviceCapabilities.deviceSupportsH265()
+        val hevc = DeviceCapabilities.secureHevcCapabilities()
+        val supportsH265 = hevc.supportsHd
+        val supportsUhd = hevc.supportsUhd
         val widevineLevel = DeviceCapabilities.widevineSecurityLevel()
         val supportsWidevineL1 = widevineLevel == "L1"
         val hdrTypes = windowManager.defaultDisplay.hdrCapabilities?.supportedHdrTypes ?: intArrayOf()
-        val hdrFormats = DeviceCapabilities.supportedHdrFormats(hdrTypes)
-        val hdrLabel = when {
-            hdrFormats.contains("DolbyVision") && hdrFormats.contains("Hdr10") -> "Yes (DV + HDR10)"
-            hdrFormats.contains("DolbyVision") -> "Yes (Dolby Vision)"
-            hdrFormats.contains("Hdr10") -> "Yes (HDR10)"
-            else -> "No HDR10/Dolby Vision"
-        }
+        val displayReport = DeviceCapabilities.displayReport(windowManager.defaultDisplay)
+        val hdrFormats = displayReport.hdrFormats
+        val requestHdrFormats = DeviceCapabilities.supportedHdrFormats(hdrTypes)
         val prefs = getSharedPreferences("settings", MODE_PRIVATE)
         val btnHd     = findViewById<Button>(R.id.btn_quality_hd)
         val btnHdH265 = findViewById<Button>(R.id.btn_quality_hd_h265)
@@ -108,32 +110,38 @@ class AboutActivity : AppCompatActivity() {
         val tvHdrBadge = findViewById<TextView>(R.id.tv_hdr_badge)
         val tvQualityChip = findViewById<TextView>(R.id.tv_quality_chip)
 
-        val supportsDisplayHdr = hdrFormats.isNotEmpty()
+        val supportsDisplayHdr = requestHdrFormats.isNotEmpty()
         tvCodecBadge.text = if (supportsH265) "HEVC ready" else "HEVC unavailable"
-        tvHdrBadge.text = if (supportsDisplayHdr) "HDR: ${hdrFormats.joinToString(" + ")}" else "No HDR10/DV output"
+        tvHdrBadge.text = when {
+            requestHdrFormats.isNotEmpty() -> "Amazon HDR: ${requestHdrFormats.joinToString(" + ")}"
+            hdrFormats.isNotEmpty() -> "Display HDR: ${hdrFormats.joinToString(" + ")} (SDR request)"
+            else -> "SDR output"
+        }
         tvQualityChip.text = when {
             !supportsWidevineL1 -> "SD only · Widevine L3"
-            supportsH265 && supportsDisplayHdr -> "4K HDR capable"
-            supportsH265 -> "4K SDR capable"
+            supportsUhd && supportsDisplayHdr -> "4K HDR capable"
+            supportsUhd -> "4K SDR capable"
             else -> "HD only"
         }
         findViewById<TextView>(R.id.tv_h265_support).text =
-            "Widevine: $widevineLevel  ·  HEVC: ${if (supportsH265) "Yes" else "No"}  ·  Display HDR: $hdrLabel"
+            "Widevine: $widevineLevel  ·  Secure HEVC HD: ${hevc.supportsHd}  ·  Secure HEVC UHD: ${hevc.supportsUhd}\n" +
+            "HEVC: ${hevc.summary()}\nDisplay: ${displayReport.summary()}\n" +
+            "Device: ${DeviceCapabilities.hardwareIdentitySummary()}"
 
         btnHd.isEnabled = supportsWidevineL1
         btnHdH265.isEnabled = supportsH265 && supportsWidevineL1
-        btnUhd.isEnabled = supportsH265 && supportsWidevineL1
+        btnUhd.isEnabled = supportsUhd && supportsWidevineL1
         btnHd.alpha = if (supportsWidevineL1) 1f else 0.45f
         btnHdH265.alpha = if (supportsH265 && supportsWidevineL1) 1f else 0.45f
-        btnUhd.alpha = if (supportsH265 && supportsWidevineL1) 1f else 0.45f
+        btnUhd.alpha = if (supportsUhd && supportsWidevineL1) 1f else 0.45f
 
         tvNote.text = when {
             !supportsWidevineL1 ->
                 "Widevine L3 is active. Amazon HD/UHD requests require Widevine L1, so playback is restricted to SD regardless of the saved quality preference."
-            !supportsH265 ->
-                "This device has no HEVC decoder, so the UHD request is unavailable. HD H264 remains available."
+            !supportsUhd ->
+                "Secure adaptive HEVC with Main/Main10 Level 5 and 3840x2160@30 support was not confirmed. The 4K preset is disabled; HD H264 remains available."
             !supportsDisplayHdr ->
-                "The 4K preset still requests UHD, but sends no HDR formats because the display reports neither HDR10 nor Dolby Vision. Amazon may return a lower tier if UHD SDR is unavailable."
+                "The 4K preset requests UHD SDR because the display reports neither HDR10 nor Dolby Vision. Amazon may still return a lower tier depending on title rights and availability."
             else ->
                 "The 4K preset requests UHD and only the HDR formats reported by the connected display. Amazon may still return a lower tier depending on title rights, DRM and availability."
         }

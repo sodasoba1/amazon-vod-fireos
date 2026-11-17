@@ -148,7 +148,8 @@ class PlaybackOrchestrator(
             logPlaybackSnapshot(
                 "RENDERER_DECODER_STALLED",
                 "stallRestartCount=${stallWatchdog.stallRestartCount} " +
-                    "lastVideoSegment=$lastVideoSegmentUrl lastAudioSegment=$lastAudioSegmentUrl"
+                    "lastVideoSegment=${redactUrlForLog(lastVideoSegmentUrl)} " +
+                    "lastAudioSegment=${redactUrlForLog(lastAudioSegmentUrl)}"
             )
             if (stallWatchdog.stallRestartCount > 20) {
                 callbacks.onError("Playback stalled and could not be recovered automatically.")
@@ -327,9 +328,13 @@ class PlaybackOrchestrator(
             .getString(PlaybackQuality.PREF_KEY, null)
         val requested = PlaybackQuality.fromPrefValue(pref)
         if (requested.videoQuality == "UHD") {
-            if (!DeviceCapabilities.deviceSupportsH265()) {
-                Toast.makeText(context, "H265 not supported — using HD H264", Toast.LENGTH_LONG).show()
-                return PlaybackQuality.HD
+            val hevc = DeviceCapabilities.secureHevcCapabilities()
+            Log.i(TAG, "Secure HEVC capability: " + hevc.summary())
+            if (!hevc.supportsUhd) {
+                val fallback = if (hevc.supportsHd) PlaybackQuality.HD_H265 else PlaybackQuality.HD
+                val fallbackLabel = if (hevc.supportsHd) "HD HEVC" else "HD H264"
+                Toast.makeText(context, "Secure UHD HEVC capability not confirmed — using $fallbackLabel", Toast.LENGTH_LONG).show()
+                return fallback
             }
             val hdrOverride = supportedHdrFormats().ifBlank { "None" }
             if (hdrOverride == "None") {
@@ -338,8 +343,8 @@ class PlaybackOrchestrator(
             }
             return PlaybackQuality.UHD_HDR.copy(hdrOverride = hdrOverride)
         }
-        if (requested == PlaybackQuality.HD_H265 && !DeviceCapabilities.deviceSupportsH265()) {
-            Toast.makeText(context, "H265 not supported — using HD H264", Toast.LENGTH_LONG).show()
+        if (requested == PlaybackQuality.HD_H265 && !DeviceCapabilities.secureHevcCapabilities().supportsHd) {
+            Toast.makeText(context, "Secure HEVC not supported — using HD H264", Toast.LENGTH_LONG).show()
             return PlaybackQuality.HD
         }
         return requested

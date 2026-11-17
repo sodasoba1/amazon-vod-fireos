@@ -7,7 +7,8 @@ data class TokenData(
     @SerializedName("refresh_token") val refreshToken: String,
     @SerializedName("device_id") val deviceId: String,
     @SerializedName("expires_in") val expiresIn: Long = 3600,
-    @SerializedName("expires_at") val expiresAt: Long = 0L
+    @SerializedName("expires_at") val expiresAt: Long = 0L,
+    @SerializedName("device_type_id") val deviceTypeId: String? = null
 )
 
 data class TokenRefreshResponse(

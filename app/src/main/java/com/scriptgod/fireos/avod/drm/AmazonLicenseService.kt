@@ -8,8 +8,8 @@ import androidx.media3.exoplayer.drm.MediaDrmCallback
 import com.scriptgod.fireos.avod.auth.AmazonAuthService
 import com.google.gson.Gson
 import com.google.gson.JsonObject
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -63,13 +63,16 @@ class AmazonLicenseService(
             Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
         )
 
-        val bodyString = "widevine2Challenge=$base64Challenge"
-        val requestBody = bodyString.toRequestBody("application/octet-stream".toMediaType())
+        // Amazon's Android client sends this wrapper as form-urlencoded, not raw octets.
+        // FormBody also safely encodes the base64url challenge without changing its value.
+        val requestBody = FormBody.Builder()
+            .add("widevine2Challenge", base64Challenge)
+            .add("includeHdcpTestKeyInLicense", "true")
+            .build()
 
         val httpRequest = Request.Builder()
             .url(licenseUrl)
             .post(requestBody)
-            .header("Content-Type", "application/octet-stream")
             .build()
 
         val response = client.newCall(httpRequest).execute()
