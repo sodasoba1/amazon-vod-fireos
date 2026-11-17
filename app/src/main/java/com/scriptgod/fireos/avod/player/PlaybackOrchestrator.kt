@@ -331,8 +331,10 @@ class PlaybackOrchestrator(
             val hevc = DeviceCapabilities.secureHevcCapabilities()
             Log.i(TAG, "Secure HEVC capability: " + hevc.summary())
             if (!hevc.supportsUhd) {
-                Toast.makeText(context, "Secure UHD HEVC capability not confirmed — using HD H264", Toast.LENGTH_LONG).show()
-                return PlaybackQuality.HD
+                val fallback = if (hevc.supportsHd) PlaybackQuality.HD_H265 else PlaybackQuality.HD
+                val fallbackLabel = if (hevc.supportsHd) "HD HEVC" else "HD H264"
+                Toast.makeText(context, "Secure UHD HEVC capability not confirmed — using $fallbackLabel", Toast.LENGTH_LONG).show()
+                return fallback
             }
             val hdrOverride = supportedHdrFormats().ifBlank { "None" }
             if (hdrOverride == "None") {
