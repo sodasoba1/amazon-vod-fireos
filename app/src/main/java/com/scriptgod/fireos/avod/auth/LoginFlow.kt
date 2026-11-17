@@ -1,5 +1,6 @@
 package com.scriptgod.fireos.avod.auth
 
+import android.content.Context
 import android.util.Base64
 import android.util.Log
 import com.google.gson.Gson
@@ -33,7 +34,7 @@ import java.util.concurrent.TimeUnit
  * 4. Submit email/password → get auth code or MFA challenge
  * 5. POST /auth/register with auth code + PKCE verifier → get tokens
  */
-class LoginFlow {
+class LoginFlow(private val context: Context) {
 
     data class Result(
         val authCode: String? = null,
@@ -83,6 +84,7 @@ class LoginFlow {
     // Device identity (matching register_device.py exactly)
     var deviceId: String = ""; private set
     var clientId: String = ""; private set
+    private var deviceTypeId: String = AmazonAuthService.DEVICE_TYPE_ID
 
     // OAuth state preserved across the performFullLogin → submitMfaCode boundary
     private var formAction: String = ""
@@ -90,7 +92,6 @@ class LoginFlow {
     private var domain: String = "amazon.com"
     private var formBaseUrl: String = "https://www.amazon.com/"
 
-    init { refreshIdentity() }
 
     // -------------------------------------------------------------------------
     // Public API
@@ -105,6 +106,8 @@ class LoginFlow {
     fun performFullLogin(email: String, password: String): Result {
         cookieStore.clear()
         refreshIdentity()
+        deviceTypeId = AmazonDtidResolver(context).resolve(deviceId)
+        clientId = hexEncode("${deviceId}#${deviceTypeId}")
         setupFraudCookies()
         Log.w(TAG, "Fresh session: cookies cleared, new PKCE + device identity")
 
@@ -278,7 +281,7 @@ class LoginFlow {
     fun performDeviceRegistration(authCode: String): TokenData {
         val regData = mapOf(
             "domain"        to "DeviceLegacy",
-            "device_type"   to AmazonAuthService.DEVICE_TYPE_ID,
+            "device_type"   to deviceTypeId,
             "device_serial" to deviceId,
             "app_name"      to AmazonAuthService.APP_NAME,
             "app_version"   to AmazonAuthService.APP_VERSION,
@@ -341,7 +344,8 @@ class LoginFlow {
             refreshToken = bearer.get("refresh_token")?.asString ?: throw RuntimeException("No refresh_token"),
             deviceId     = deviceId,
             expiresIn    = bearer.get("expires_in")?.asLong ?: 3600L,
-            expiresAt    = System.currentTimeMillis() / 1000 + (bearer.get("expires_in")?.asLong ?: 3600L)
+            expiresAt    = System.currentTimeMillis() / 1000 + (bearer.get("expires_in")?.asLong ?: 3600L),
+            deviceTypeId = deviceTypeId
         )
     }
 
@@ -356,8 +360,11 @@ class LoginFlow {
             MessageDigest.getInstance("SHA-256").digest(codeVerifier.toByteArray()),
             Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
         )
-        deviceId = UUID.randomUUID().toString().replace("-", "").lowercase()
-        clientId = hexEncode("${deviceId}#${AmazonAuthService.DEVICE_TYPE_ID}")
+        val preferences = context.getSharedPreferences("amazon_device_identity", Context.MODE_PRIVATE)
+        deviceId = preferences.getString("device_id", null)?.takeIf { it.isNotBlank() }
+            ?: UUID.randomUUID().toString().replace("-", "").lowercase().also {
+                preferences.edit().putString("device_id", it).apply()
+            }
     }
 
     private fun setupFraudCookies() {

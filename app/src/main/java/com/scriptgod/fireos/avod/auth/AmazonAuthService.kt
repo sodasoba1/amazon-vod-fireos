@@ -66,6 +66,10 @@ class AmazonAuthService(private val tokenFile: File) {
             ?: throw IllegalStateException("Failed to parse .device-token")
     }
 
+    /** DTID persisted with this registration; older token files fall back to the known Android profile. */
+    val deviceTypeId: String
+        get() = tokenData.deviceTypeId?.takeIf { it.isNotBlank() } ?: DEVICE_TYPE_ID
+
     fun getAccessToken(): String = synchronized(this) {
         if (isExpired()) {
             Log.d(TAG, "Token expired, refreshing")
@@ -93,7 +97,7 @@ class AmazonAuthService(private val tokenFile: File) {
 
         val body = FormBody.Builder()
             .add("domain", "DeviceLegacy")
-            .add("device_type", DEVICE_TYPE_ID)
+            .add("device_type", deviceTypeId)
             .add("device_serial", current.deviceId)
             .add("app_name", APP_NAME)
             .add("app_version", APP_VERSION)

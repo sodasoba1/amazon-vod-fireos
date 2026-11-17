@@ -96,7 +96,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
         val locales = "da_DK,de_DE,en_US,en_GB,es_ES,fr_FR,it_IT,ja_JP,ko_KR," +
                       "nl_NL,pl_PL,pt_BR,pt_PT,ru_RU,sv_SE,tr_TR,zh_CN,zh_TW"
         val url = "https://atv-ps.amazon.com/cdp/usage/v3/GetAppStartupConfig" +
-                  "?deviceTypeID=${AmazonAuthService.DEVICE_TYPE_ID}" +
+                  "?deviceTypeID=${authService.deviceTypeId}" +
                   "&deviceID=$did" +
                   "&firmware=1&version=1&supportedLocales=$locales&format=json"
         try {
@@ -180,7 +180,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
     // --- Catalog params (android_api.py:40-53) ---
     private fun baseParams(): String {
         val did = deviceId()
-        return "deviceTypeID=${AmazonAuthService.DEVICE_TYPE_ID}" +
+        return "deviceTypeID=${authService.deviceTypeId}" +
                "&firmware=$FIRMWARE" +
                "&softwareVersion=$SOFTWARE_VERSION" +
                "&priorityLevel=2" +
@@ -960,7 +960,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
         val params = buildString {
             append("asin=").append(asin)
             append(if (BuildConfig.STOLLD_PLAYBACK_API_V1) "&deviceTypeId=" else "&deviceTypeID=")
-            append(AmazonAuthService.DEVICE_TYPE_ID)
+            append(authService.deviceTypeId)
             append("&firmware=1")
             append("&deviceID=").append(did)
             append("&marketplaceID=").append(marketplaceId)
@@ -1210,7 +1210,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
         return "$atvUrl/cdp/catalog/GetPlaybackResources" +
                "?asin=$asin" +
                (if (BuildConfig.STOLLD_PLAYBACK_API_V1) "&deviceTypeId=" else "&deviceTypeID=") +
-               AmazonAuthService.DEVICE_TYPE_ID +
+               authService.deviceTypeId +
                "&firmware=1" +
                "&deviceID=$deviceId" +
                "&marketplaceID=$marketplaceId" +
@@ -1363,7 +1363,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
                   "&timecode=$timecodeSeconds" +
                   "&timecodeChangeTime=${java.net.URLEncoder.encode(now, "UTF-8")}" +
                   (if (sessionId.isNotEmpty()) "&userWatchSessionId=$sessionId" else "") +
-                  "&deviceTypeID=${AmazonAuthService.DEVICE_TYPE_ID}" +
+                  "&deviceTypeID=${authService.deviceTypeId}" +
                   "&firmware=1" +
                   "&deviceID=$did" +
                   "&marketplaceID=$marketplaceId" +

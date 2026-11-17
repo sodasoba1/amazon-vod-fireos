@@ -49,7 +49,7 @@ class LoginActivity : AppCompatActivity() {
     private val scope = CoroutineScope(Dispatchers.Main + scopeJob)
 
     private val tokenStore by lazy { TokenStore(this) }
-    private val loginFlow  by lazy { LoginFlow() }
+    private val loginFlow  by lazy { LoginFlow(applicationContext) }
 
     private var needsMfa = false
 
