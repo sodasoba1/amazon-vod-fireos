@@ -328,8 +328,10 @@ class PlaybackOrchestrator(
             .getString(PlaybackQuality.PREF_KEY, null)
         val requested = PlaybackQuality.fromPrefValue(pref)
         if (requested.videoQuality == "UHD") {
-            if (!DeviceCapabilities.deviceSupportsH265()) {
-                Toast.makeText(context, "H265 not supported — using HD H264", Toast.LENGTH_LONG).show()
+            val hevc = DeviceCapabilities.secureHevcCapabilities()
+            Log.i(TAG, "Secure HEVC capability: " + hevc.summary())
+            if (!hevc.supportsUhd) {
+                Toast.makeText(context, "Secure UHD HEVC capability not confirmed — using HD H264", Toast.LENGTH_LONG).show()
                 return PlaybackQuality.HD
             }
             val hdrOverride = supportedHdrFormats().ifBlank { "None" }
@@ -339,8 +341,8 @@ class PlaybackOrchestrator(
             }
             return PlaybackQuality.UHD_HDR.copy(hdrOverride = hdrOverride)
         }
-        if (requested == PlaybackQuality.HD_H265 && !DeviceCapabilities.deviceSupportsH265()) {
-            Toast.makeText(context, "H265 not supported — using HD H264", Toast.LENGTH_LONG).show()
+        if (requested == PlaybackQuality.HD_H265 && !DeviceCapabilities.secureHevcCapabilities().supportsHd) {
+            Toast.makeText(context, "Secure HEVC not supported — using HD H264", Toast.LENGTH_LONG).show()
             return PlaybackQuality.HD
         }
         return requested
