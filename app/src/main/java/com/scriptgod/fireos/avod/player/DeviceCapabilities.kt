@@ -34,7 +34,7 @@ object DeviceCapabilities {
         val maxHeight: Int,
         val secureDecoderNames: List<String>
     ) {
-        val supportsHd: Boolean get() = secureDecoderPresent && (mainLevel4 || main10Level4)
+        val supportsHd: Boolean get() = secureDecoderPresent && adaptiveSecureDecoderPresent && (mainLevel4 || main10Level4)
         val supportsUhd: Boolean get() = isUhdCapable(
             secureDecoderPresent, adaptiveSecureDecoderPresent, mainLevel5 || main10Level5, uhd30Supported
         )
@@ -109,6 +109,7 @@ object DeviceCapabilities {
                 }
                 val dvCaps = runCatching { info.getCapabilitiesForType("video/dolby-vision") }.getOrNull()
                 if (dvCaps != null && dvCaps.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_SecurePlayback) &&
+                    dvCaps.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_AdaptivePlayback) &&
                     !dvCaps.isFeatureRequired(MediaCodecInfo.CodecCapabilities.FEATURE_TunneledPlayback)) {
                     dvCaps.profileLevels.forEach { level ->
                         if (level.profile == 32 && level.level >= 8) dvFhd = true
@@ -118,6 +119,7 @@ object DeviceCapabilities {
                 if (Build.VERSION.SDK_INT >= 29) {
                     val av1Caps = runCatching { info.getCapabilitiesForType("video/av01") }.getOrNull()
                     if (av1Caps != null && av1Caps.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_SecurePlayback) &&
+                        av1Caps.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_AdaptivePlayback) &&
                         !av1Caps.isFeatureRequired(MediaCodecInfo.CodecCapabilities.FEATURE_TunneledPlayback)) {
                         av1Caps.profileLevels.forEach { level ->
                             if (level.profile == 2 && level.level >= 256) av1L4 = true
@@ -160,7 +162,7 @@ object DeviceCapabilities {
     fun hardwareIdentitySummary(): String =
         "manufacturer=${Build.MANUFACTURER} brand=${Build.BRAND} model=${Build.MODEL} " +
         "device=${Build.DEVICE} product=${Build.PRODUCT} hardware=${Build.HARDWARE} " +
-        "android=${Build.VERSION.RELEASE} sdk=${Build.VERSION.SDK_INT}"
+        "android=${Build.VERSION.RELEASE} sdk=${Build.VERSION.SDK_INT} fingerprint=${Build.FINGERPRINT}"
 
     /** Compatibility helper now requires a secure HEVC decoder. */
     fun deviceSupportsH265(): Boolean = secureHevcCapabilities().supportsHd

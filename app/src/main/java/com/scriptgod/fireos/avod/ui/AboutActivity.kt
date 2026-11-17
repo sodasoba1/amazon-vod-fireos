@@ -112,7 +112,11 @@ class AboutActivity : AppCompatActivity() {
 
         val supportsDisplayHdr = requestHdrFormats.isNotEmpty()
         tvCodecBadge.text = if (supportsH265) "HEVC ready" else "HEVC unavailable"
-        tvHdrBadge.text = "Display: ${hdrFormats.joinToString(" + ").ifBlank { "SDR" }} · Request: ${requestHdrFormats.joinToString(" + ").ifBlank { "SDR" }}"
+        tvHdrBadge.text = when {
+            requestHdrFormats.isNotEmpty() -> "Amazon HDR: ${requestHdrFormats.joinToString(" + ")}"
+            hdrFormats.isNotEmpty() -> "Display HDR: ${hdrFormats.joinToString(" + ")} (SDR request)"
+            else -> "SDR output"
+        }
         tvQualityChip.text = when {
             !supportsWidevineL1 -> "SD only · Widevine L3"
             supportsUhd && supportsDisplayHdr -> "4K HDR capable"
