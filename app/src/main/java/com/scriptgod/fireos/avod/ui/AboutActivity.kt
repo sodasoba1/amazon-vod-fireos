@@ -43,9 +43,11 @@ class AboutActivity : AppCompatActivity() {
         // Account info from token file
         val tokenFile = LoginActivity.findTokenFile(this)
         if (tokenFile != null) {
+            var token: TokenData? = null
             try {
-                val token = Gson().fromJson(tokenFile.readText(), TokenData::class.java)
-                val deviceId = token.deviceId
+                val loadedToken = Gson().fromJson(tokenFile.readText(), TokenData::class.java)
+                token = loadedToken
+                val deviceId = loadedToken.deviceId
                 val masked = if (deviceId.length > 12) deviceId.take(8) + "…" + deviceId.takeLast(4)
                              else deviceId
                 findViewById<TextView>(R.id.tv_device_id).text = masked
@@ -54,9 +56,9 @@ class AboutActivity : AppCompatActivity() {
             }
             findViewById<TextView>(R.id.tv_token_location).text = "app-private storage"
             findViewById<TextView>(R.id.tv_token_chip).text = "Token active"
-            val dtidLabel = token.deviceTypeId?.takeIf { it.isNotBlank() } ?: "A43 legacy fallback"
+            val dtidLabel = token?.deviceTypeId?.takeIf { it.isNotBlank() } ?: "A43 legacy fallback"
             findViewById<TextView>(R.id.tv_token_status).text =
-                "Amazon DTID: $dtidLabel\\nA device token is present and the app can launch directly into the catalog."
+                "Amazon DTID: $dtidLabel\nA device token is present and the app can launch directly into the catalog."
         } else {
             findViewById<TextView>(R.id.tv_device_id).text = "no token"
             findViewById<TextView>(R.id.tv_token_location).text = "—"
