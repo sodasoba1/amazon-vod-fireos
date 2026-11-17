@@ -28,8 +28,9 @@ object DeviceCapabilities {
         val secureDecoderNames: List<String>
     ) {
         val supportsHd: Boolean get() = secureDecoderPresent
-        val supportsUhd: Boolean get() = secureDecoderPresent &&
-            adaptiveSecureDecoderPresent && (mainLevel5 || main10Level5) && uhd30Supported
+        val supportsUhd: Boolean get() = isUhdCapable(
+            secureDecoderPresent, adaptiveSecureDecoderPresent, mainLevel5 || main10Level5, uhd30Supported
+        )
 
         fun summary(): String =
             "present=$decoderPresent secure=$secureDecoderPresent adaptive=$adaptiveSecureDecoderPresent " +
@@ -95,6 +96,9 @@ object DeviceCapabilities {
             SecureHevcCapabilities(present, secure, adaptive, mainL5, main10L5, false, maxWidth, maxHeight, names)
         }
     }
+
+    internal fun isUhdCapable(secure: Boolean, adaptive: Boolean, level5: Boolean, supports3840x2160: Boolean): Boolean =
+        secure && adaptive && level5 && supports3840x2160
 
     /** Only report HDR strings that the current playback request builder supports. */
     fun supportedHdrFormats(hdrTypes: IntArray): List<String> = buildList {
