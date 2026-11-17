@@ -54,7 +54,9 @@ class AboutActivity : AppCompatActivity() {
             }
             findViewById<TextView>(R.id.tv_token_location).text = "app-private storage"
             findViewById<TextView>(R.id.tv_token_chip).text = "Token active"
-            findViewById<TextView>(R.id.tv_token_status).text = "A device token is present and the app can launch directly into the catalog."
+            val dtidLabel = token.deviceTypeId?.takeIf { it.isNotBlank() } ?: "A43 legacy fallback"
+            findViewById<TextView>(R.id.tv_token_status).text =
+                "Amazon DTID: $dtidLabel\\nA device token is present and the app can launch directly into the catalog."
         } else {
             findViewById<TextView>(R.id.tv_device_id).text = "no token"
             findViewById<TextView>(R.id.tv_token_location).text = "—"
