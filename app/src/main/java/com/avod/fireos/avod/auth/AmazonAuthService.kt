@@ -46,15 +46,22 @@ class AmazonAuthService(private val tokenFile: File) {
         const val APP_NAME = "com.amazon.avod.thirdpartyclient"
         const val APP_VERSION = "296016847"
 
+        // These are read lazily and null-safely: android.os.Build fields are null under JVM unit
+        // tests, and touching them during companion init would fail to load the whole class.
+
         /** e.g. "mantis/Amazon/AFTMM" — device/manufacturer/model, as reported by the hardware. */
-        val DEVICE_MODEL: String = "${Build.DEVICE}/${Build.MANUFACTURER}/${Build.MODEL}"
+        val DEVICE_MODEL: String by lazy {
+            "${Build.DEVICE ?: "unknown"}/${Build.MANUFACTURER ?: "unknown"}/${Build.MODEL ?: "unknown"}"
+        }
 
         /** The device's real build fingerprint, e.g. "Amazon/mantis/mantis:6.0/NS6711/...". */
-        val OS_VERSION: String = Build.FINGERPRINT
+        val OS_VERSION: String by lazy { Build.FINGERPRINT ?: "unknown" }
 
         /** e.g. "Dalvik/2.1.0 (Linux; U; Android 7.1.2; AFTMM Build/NS6711)". */
-        val USER_AGENT: String =
-            "Dalvik/2.1.0 (Linux; U; Android ${Build.VERSION.RELEASE}; ${Build.MODEL} Build/${Build.ID})"
+        val USER_AGENT: String by lazy {
+            "Dalvik/2.1.0 (Linux; U; Android ${Build.VERSION.RELEASE ?: "7.1.2"}; " +
+                "${Build.MODEL ?: "AFTMM"} Build/${Build.ID ?: "NS6711"})"
+        }
 
         private val AUTHENTICATED_API_HOSTS = setOf(
             "atv-ps-eu.amazon.de", "atv-ps-eu.amazon.co.uk",
