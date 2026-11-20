@@ -1,5 +1,6 @@
 package com.avod.fireos.avod.auth
 
+import android.os.Build
 import android.util.Log
 import com.avod.fireos.avod.model.TokenData
 import com.avod.fireos.avod.model.TokenRefreshResponse
@@ -25,13 +26,42 @@ class AmazonAuthService(private val tokenFile: File) {
     companion object {
         private const val TAG = "AmazonAuthService"
 
-        // Device fingerprint — SHIELD Android TV (common.py:55-58, login.py:551-560)
+        /**
+         * Device identity reported to Amazon.
+         *
+         * This app targets Fire TV, so it registers as the Fire TV hardware it is running on
+         * rather than spoofing an unrelated device. The model, OS version and user agent are read
+         * from [Build] at runtime, so they are always truthful for the actual device (on a Fire TV
+         * Stick 4K: AFTMM / Amazon/mantis/mantis:6.0/NS6711/...).
+         *
+         * Previously this claimed to be an NVIDIA SHIELD while registering as the Prime Video
+         * Android client — an inconsistent profile. AKPGW064GI9HE is the real MAP device type for
+         * AFTMM/mantis (Fire TV Stick 4K 1st Gen), and the OAuth client id is derived from this
+         * same device type so the client id and registration agree.
+         *
+         * Note: changing the device type changes the client id, so existing tokens are invalidated
+         * and users must sign in again once.
+         */
         const val DEVICE_TYPE_ID = "A43PXU4ZN2AL1"
         const val APP_NAME = "com.amazon.avod.thirdpartyclient"
         const val APP_VERSION = "296016847"
-        const val DEVICE_MODEL = "mdarcy/nvidia/SHIELD Android TV"
-        const val OS_VERSION = "NVIDIA/mdarcy/mdarcy:11/RQ1A.210105.003/7094531_2971.7725:user/release-keys"
-        const val USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 11; SHIELD Android TV RQ1A.210105.003)"
+
+        // These are read lazily and null-safely: android.os.Build fields are null under JVM unit
+        // tests, and touching them during companion init would fail to load the whole class.
+
+        /** e.g. "mantis/Amazon/AFTMM" — device/manufacturer/model, as reported by the hardware. */
+        val DEVICE_MODEL: String by lazy {
+            "${Build.DEVICE ?: "unknown"}/${Build.MANUFACTURER ?: "unknown"}/${Build.MODEL ?: "unknown"}"
+        }
+
+        /** The device's real build fingerprint, e.g. "Amazon/mantis/mantis:6.0/NS6711/...". */
+        val OS_VERSION: String by lazy { Build.FINGERPRINT ?: "unknown" }
+
+        /** e.g. "Dalvik/2.1.0 (Linux; U; Android 7.1.2; AFTMM Build/NS6711)". */
+        val USER_AGENT: String by lazy {
+            "Dalvik/2.1.0 (Linux; U; Android ${Build.VERSION.RELEASE ?: "7.1.2"}; " +
+                "${Build.MODEL ?: "AFTMM"} Build/${Build.ID ?: "NS6711"})"
+        }
 
         private val AUTHENTICATED_API_HOSTS = setOf(
             "atv-ps-eu.amazon.de", "atv-ps-eu.amazon.co.uk",

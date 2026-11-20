@@ -127,6 +127,19 @@
             android:textStyle="bold"
             android:backgroundTint="#00A8E0"
             android:focusable="true"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Sign in with a code (CBL / amazon.com/code) -->
+        <Button
+            android:id="@+id/btn_code_login"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="Sign in with a code"
+            android:textColor="#E9F6FB"
+            android:textSize="15sp"
+            android:background="@drawable/button_pill_secondary"
+            android:backgroundTint="@null"
+            android:focusable="true"
             android:layout_marginBottom="16dp"/>
 
         <!-- Status text -->

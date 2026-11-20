@@ -396,7 +396,7 @@ class LoginFlow {
             Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
         )
         deviceId = UUID.randomUUID().toString().replace("-", "").lowercase()
-        clientId = hexEncode("${deviceId}#A1MPSLFC7L5AFK")
+        clientId = hexEncode("${deviceId}#${AmazonAuthService.DEVICE_TYPE_ID}")
     }
 
     private fun setupFraudCookies() {
