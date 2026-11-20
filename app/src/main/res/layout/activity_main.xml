@@ -124,7 +124,7 @@
             android:paddingBottom="8dp"
             android:visibility="gone">
 
-            <com.scriptgod.fireos.avod.ui.DpadEditText
+            <com.avod.fireos.avod.ui.DpadEditText
                 android:id="@+id/et_search"
                 android:layout_width="0dp"
                 android:layout_height="44dp"

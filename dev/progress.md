@@ -1973,7 +1973,7 @@ val frameHeightPx: Int = 0
 
 **Files**:
 - `app/src/main/res/layout/activity_player.xml`
-- `app/src/main/java/com/scriptgod/fireos/avod/ui/PlayerActivity.kt`
+- `app/src/main/java/com/avod/fireos/avod/ui/PlayerActivity.kt`
 
 **Layout**:
 - add a small floating thumbnail card above `exo_progress`
@@ -1998,9 +1998,9 @@ val frameHeightPx: Int = 0
 #### Part C — Series resume shortcut
 
 **Files**:
-- `app/src/main/java/com/scriptgod/fireos/avod/ui/DetailActivity.kt`
-- `app/src/main/java/com/scriptgod/fireos/avod/data/ProgressRepository.kt`
-- `app/src/main/java/com/scriptgod/fireos/avod/ui/MainActivity.kt`
+- `app/src/main/java/com/avod/fireos/avod/ui/DetailActivity.kt`
+- `app/src/main/java/com/avod/fireos/avod/data/ProgressRepository.kt`
+- `app/src/main/java/com/avod/fireos/avod/ui/MainActivity.kt`
 
 **Needed data work**:
 - preserve enough parent-series identity on episode items

@@ -1,6 +1,8 @@
-# ScriptGod's FireOS AmazonVOD
+# FireOS AVOD
 
 > A native FireOS app that replaces Amazon's built-in Prime Video client — ad-free, no root required. Built by reverse-engineering the official FireTV APK and Amazon's internal API. Full D-pad navigation, Widevine DRM playback, watchlist and continue-watching support.
+
+> **Forked from [ScriptGod1337/amazon-vod-fireos](https://github.com/ScriptGod1337/amazon-vod-fireos).** All of the original reverse-engineering and app design is ScriptGod1337's work. This fork rebrands the app, makes quality selection automatic (so 4K/1080p is actually requested instead of capping at 720p), removes the ad-supported Freevee section, and tightens the browse UI. See [What's different in this fork](#whats-different-in-this-fork).
 
 Amazon Prime Video on FireTV now shows ads — unless you pay an extra €2,99/month on top of your existing €8,99/month subscription. This project is a native FireTV app that talks directly to Amazon's Prime Video API, plays streams via ExoPlayer with Widevine DRM, and contains exactly zero ad logic.
 
@@ -18,6 +20,22 @@ Built with AI (Claude + Codex) through reverse-engineering the Kodi plugin's API
 | Widevine L1 (HDR/4K) | ❌ | ✅ |
 
 _(see [background story](dev/background.story/story-funny.md))_
+
+## What's different in this fork
+
+This fork builds on ScriptGod1337's app with four changes:
+
+**1. Automatic quality selection + real 4K/1080p gating.** The upstream default requested the `HD` tier, which Amazon caps at 720p — so 1080p and 4K were never requested. This fork adds an **Auto** mode (now the default) that mirrors the stock Prime Video app's `VideoQualityManager` (`BEST`): it requests the highest tier the device actually supports and lets adaptive streaming serve the best representation, so 1080p and 4K come through the UHD manifest ladder automatically. The device capability checks were ported from the official FireTV app's decompiled `DecoderCapabilitiesProvider` and `HdcpChecker`:
+- HEVC **Main L5** / **Main10 L5** decoder detection (the real 4K/4K-HDR codec gates, vs. a weaker "any HEVC decoder" check).
+- HDCP level via the Widevine CDM — Amazon only releases 4K over an HDCP 2.2 link.
+- UHD is gated on Main L5 + HDCP 2.2; HDR vs. UHD-SDR is chosen from Main10 L5 + display HDR.
+- The About screen surfaces HEVC L5 / HDCP and enables the 4K option only when the device qualifies.
+
+**2. Freevee removed.** The ad-supported Freevee section, its nav button, and its API paths (`getFreeveePage` / catalog browse) were removed, along with the `Availability.FREEVEE` classification. The app is Prime-focused and ad-free, so an ad-supported catalog was off-mission. The internal `isFreeWithAds` flag is kept because it still drives the "Included with Prime" badge.
+
+**3. Denser, more native browse UI.** Poster and thumbnail sizes were reduced, and the Browse grid is now **responsive** — it computes the column count from the available width and the card size, so smaller cards pack densely (≈5–6 posters per row on a 1080p TV) like the native app, instead of a fixed 4-column grid with gaps.
+
+**4. Rebrand.** The app name is now **FireOS AVOD** and the package / application ID is `com.avod.fireos.avod` (was `com.avod.fireos.avod`). Because the application ID changed, this installs as a **separate app** — it will not update over an install of the upstream build.
 
 ## Features
 
@@ -110,7 +128,7 @@ Selecting any movie or series opens a full detail screen before playback:
 ## Architecture
 
 ```
-com.scriptgod.fireos.avod
+com.avod.fireos.avod
  +-- auth/
  |   +-- AmazonAuthService.kt      Token management, OkHttp interceptors (auth, headers, logging)
  +-- api/
@@ -292,7 +310,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb install -r FireOS-AVOD-<version>.apk
 
 # Launch
-adb shell am start -n com.scriptgod.fireos.avod/.ui.LoginActivity
+adb shell am start -n com.avod.fireos.avod/.ui.LoginActivity
 ```
 
 ## Authentication

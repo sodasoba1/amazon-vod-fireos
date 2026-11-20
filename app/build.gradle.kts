@@ -19,11 +19,11 @@ if (releaseSigningValues.any { !it.isNullOrBlank() } && !hasReleaseSigning) {
 }
 
 android {
-    namespace = "com.scriptgod.fireos.avod"
+    namespace = "com.avod.fireos.avod"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.scriptgod.fireos.avod"
+        applicationId = "com.avod.fireos.avod"
         minSdk = 25
         targetSdk = 34
         versionCode = (findProperty("versionCodeOverride") as? String)?.toIntOrNull() ?: 1
