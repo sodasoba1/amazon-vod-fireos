@@ -78,7 +78,7 @@ class BrowseActivity : AppCompatActivity() {
         val tokenFile = LoginActivity.findTokenFile(this)
             ?: run { finish(); return }
         val authService = AmazonAuthService(tokenFile)
-        apiService = AmazonApiService(authService)
+        apiService = AmazonApiService(authService, applicationContext)
         ProgressRepository.init(applicationContext)
 
         watchlistAsins = (intent.getStringArrayListExtra(EXTRA_WATCHLIST_ASINS) ?: ArrayList()).toMutableSet()

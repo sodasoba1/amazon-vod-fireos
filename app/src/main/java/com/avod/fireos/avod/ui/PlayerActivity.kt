@@ -125,7 +125,7 @@ class PlayerActivity : AppCompatActivity() {
         val tokenFile = TokenStore.findTokenFile(this)
             ?: run { finish(); return }
         val authService = AmazonAuthService(tokenFile)
-        val apiService  = AmazonApiService(authService)
+        val apiService  = AmazonApiService(authService, applicationContext)
         ProgressRepository.init(applicationContext)
 
         orchestrator = PlaybackOrchestrator(

@@ -1,5 +1,7 @@
 package com.avod.fireos.avod.api
 
+import android.content.Context
+import android.os.Build
 import android.util.Log
 import com.avod.fireos.avod.auth.AmazonAuthService
 import com.avod.fireos.avod.model.ContentItem
@@ -22,7 +24,33 @@ import okhttp3.RequestBody.Companion.toRequestBody
  * Catalog browsing and stream manifest fetching.
  * Mirrors android_api.py and network.py (GetPlaybackResources).
  */
-class AmazonApiService(private val authService: AmazonAuthService) {
+class AmazonApiService(
+    private val authService: AmazonAuthService,
+    private val appContext: Context,
+) {
+    /**
+     * The `firmware` value sent on playback/catalog requests, in Amazon's `fmw:<api>-app:<ver>`
+     * format. `fmw` tracks the Android API level; `app` is the version of the stock Prime Video
+     * app installed on this device (read via PackageManager), falling back to a known value if it
+     * isn't present. Computed once. Replaces the old hard-coded `firmware=1` placeholder.
+     */
+    private val firmware: String by lazy { resolveFirmware() }
+
+    private fun resolveFirmware(): String {
+        val appVersion = sequenceOf("com.amazon.firebat", "com.amazon.avod")
+            .mapNotNull { pkg ->
+                try {
+                    val versionName = appContext.packageManager.getPackageInfo(pkg, 0).versionName
+                    versionName?.let { Regex("""\d+\.\d+(?:\.\d+)*""").find(it)?.value }
+                } catch (e: Exception) {
+                    null   // package not installed / not visible
+                }
+            }
+            .firstOrNull() ?: DEFAULT_PRIME_VIDEO_VERSION
+        val value = "fmw:${Build.VERSION.SDK_INT}-app:$appVersion"
+        Log.i(TAG, "Resolved firmware: $value")
+        return value
+    }
 
     data class TerritoryInfo(val atvUrl: String, val marketplaceId: String, val sidomain: String, val lang: String)
 
@@ -46,7 +74,8 @@ class AmazonApiService(private val authService: AmazonAuthService) {
         private const val DEFAULT_MARKETPLACE_ID = "ATVPDKIKX0DER"
 
         // Android API catalog parameters (android_api.py:40-53)
-        private const val FIRMWARE = "fmw:22-app:3.0.351.3955"
+        /** Fallback Prime Video app version when the stock app isn't installed/readable on the device. */
+        private const val DEFAULT_PRIME_VIDEO_VERSION = "325.0016"
         private const val SOFTWARE_VERSION = "351"
         private const val SCREEN_WIDTH = "sw1600dp"
         private const val FEATURE_SCHEME = "mobile-android-features-v13-hdr"
@@ -96,7 +125,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
         val url = "https://atv-ps.amazon.com/cdp/usage/v3/GetAppStartupConfig" +
                   "?deviceTypeID=${AmazonAuthService.DEVICE_TYPE_ID}" +
                   "&deviceID=$did" +
-                  "&firmware=1&version=1&supportedLocales=$locales&format=json"
+                  "&firmware=$firmware&version=1&supportedLocales=$locales&format=json"
         try {
             val request = Request.Builder().url(url).get().build()
             val response = client.newCall(request).execute()
@@ -179,7 +208,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
     private fun baseParams(): String {
         val did = deviceId()
         return "deviceTypeID=${AmazonAuthService.DEVICE_TYPE_ID}" +
-               "&firmware=$FIRMWARE" +
+               "&firmware=$firmware" +
                "&softwareVersion=$SOFTWARE_VERSION" +
                "&priorityLevel=2" +
                "&format=json" +
@@ -846,7 +875,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
         val params = buildString {
             append("asin=").append(asin)
             append("&deviceTypeID=").append(AmazonAuthService.DEVICE_TYPE_ID)
-            append("&firmware=1")
+            append("&firmware=$firmware")
             append("&deviceID=").append(did)
             append("&marketplaceID=").append(marketplaceId)
             append("&format=json")
@@ -1090,7 +1119,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
         return "$atvUrl/cdp/catalog/GetPlaybackResources" +
                "?asin=$asin" +
                "&deviceTypeID=${AmazonAuthService.DEVICE_TYPE_ID}" +
-               "&firmware=1" +
+               "&firmware=$firmware" +
                "&deviceID=$deviceId" +
                "&marketplaceID=$marketplaceId" +
                "&format=json" +
@@ -1243,7 +1272,7 @@ class AmazonApiService(private val authService: AmazonAuthService) {
                   "&timecodeChangeTime=${java.net.URLEncoder.encode(now, "UTF-8")}" +
                   (if (sessionId.isNotEmpty()) "&userWatchSessionId=$sessionId" else "") +
                   "&deviceTypeID=${AmazonAuthService.DEVICE_TYPE_ID}" +
-                  "&firmware=1" +
+                  "&firmware=$firmware" +
                   "&deviceID=$did" +
                   "&marketplaceID=$marketplaceId" +
                   "&format=json"

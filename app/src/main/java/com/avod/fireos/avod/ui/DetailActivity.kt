@@ -96,7 +96,7 @@ class DetailActivity : AppCompatActivity() {
         tvWatchProgress = findViewById(R.id.tv_watch_progress)
 
         val tokenFile = LoginActivity.findTokenFile(this) ?: run { finish(); return }
-        apiService = AmazonApiService(AmazonAuthService(tokenFile))
+        apiService = AmazonApiService(AmazonAuthService(tokenFile), applicationContext)
         ProgressRepository.init(applicationContext)
 
         currentAsin = intent.getStringExtra(EXTRA_ASIN)
