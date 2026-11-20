@@ -28,14 +28,26 @@ import java.util.UUID
  * registration_data.domain is also "Device" here rather than the password flow's "DeviceLegacy".
  *
  * UNVERIFIED FOR THIS DEVICE TYPE: the flow is confirmed working for Audible's device type, but
- * whether /auth/create/codepair accepts this app's device type ($DEVICE_TYPE_ID) has not been
- * tested. If codepair returns 400, that is the first thing to suspect.
+ * whether /auth/create/codepair accepts this device type has not been tested. If codepair returns 400, that is the first thing to suspect.
  */
 class CblLoginFlow {
 
     companion object {
         private const val TAG = "CblLoginFlow"
         private const val DOMAIN = "amazon.com"
+
+        /**
+         * Device type used for the code pair and registration.
+         *
+         * AKPGW064GI9HE = Fire TV Stick 4K 1st Gen (AFTMM/mantis) — a real Fire TV hardware type.
+         * Chosen because /auth/create/codepair is known to accept Fire and iPhone device types,
+         * while arbitrary types may be rejected with HTTP 400.
+         *
+         * Fallback to try if codepair rejects this one:
+         *   A43PXU4ZN2AL1 = "Prime Video for Android" (com.amazon.avod.thirdpartyclient) — the
+         *   type the password flow registers as (AmazonAuthService.DEVICE_TYPE_ID).
+         */
+        const val CBL_DEVICE_TYPE = "AKPGW064GI9HE"
     }
 
     data class CodePair(
@@ -66,7 +78,7 @@ class CblLoginFlow {
         val payload = mapOf(
             "code_data" to mapOf(
                 "device_serial" to deviceId,
-                "device_type"   to AmazonAuthService.DEVICE_TYPE_ID,
+                "device_type"   to CBL_DEVICE_TYPE,
                 "domain"        to "Device",          // "DeviceLegacy" is rejected here
             ),
             "code_properties" to mapOf(
@@ -120,7 +132,7 @@ class CblLoginFlow {
     fun pollOnce(pair: CodePair): PollResult {
         val regData = mapOf(
             "domain"        to "Device",
-            "device_type"   to AmazonAuthService.DEVICE_TYPE_ID,
+            "device_type"   to CBL_DEVICE_TYPE,
             "device_serial" to deviceId,
             "app_name"      to AmazonAuthService.APP_NAME,
             "app_version"   to AmazonAuthService.APP_VERSION,
