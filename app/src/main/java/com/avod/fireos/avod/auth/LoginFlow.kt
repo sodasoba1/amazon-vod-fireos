@@ -38,6 +38,8 @@ class LoginFlow {
     data class Result(
         val authCode: String? = null,
         val needsMfa: Boolean = false,
+        /** Device-approval challenge: user approves a push notification, no code is typed. */
+        val needsApproval: Boolean = false,
         val mfaMessage: String? = null,
         val error: String? = null
     )
@@ -272,6 +274,45 @@ class LoginFlow {
         return parseResponseBody(resp.code, body)
     }
 
+    /**
+     * Completes a device-approval challenge after [performFullLogin] returned [Result.needsApproval].
+     *
+     * The user approves the push notification on their Amazon device; we then re-POST the approval
+     * form WITHOUT an otpCode (submitting otpCode to the approval endpoint returns 404) and follow
+     * for the auth code. Retries a few times in case the approval is still pending, and returns
+     * [Result.needsApproval] again if it hasn't landed yet so the user can retry.
+     */
+    fun submitApproval(): Result {
+        val postUrl = resolveTrustedAmazonUrl(formAction, formBaseUrl)
+            ?: return Result(error = "Amazon returned an untrusted approval form destination.")
+        repeat(3) { attempt ->
+            val formBody = FormBody.Builder().apply {
+                for ((k, v) in hiddenFields) add(k, v)
+                add("rememberDevice", "")
+            }.build()
+            Log.w(TAG, "Approval re-submit attempt ${attempt + 1} to: ${safeUrlForLog(postUrl)}")
+            val resp = noRedirectClient.newCall(
+                Request.Builder().url(postUrl).post(formBody)
+                    .header("User-Agent", AmazonAuthService.USER_AGENT)
+                    .header("Accept", "text/html,application/xhtml+xml")
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .build()
+            ).execute()
+            val body = resp.body?.string() ?: ""
+            val location = resp.header("Location")
+            Log.w(TAG, "Approval POST: HTTP ${resp.code}, location=${safeUrlForLog(location)}, body=${body.length}")
+            if (location != null) return followForAuthCode(location, resp.request.url.host)
+            formBaseUrl = postUrl
+            val parsed = parseResponseBody(resp.code, body)
+            if (parsed.authCode != null) return parsed
+            // If it is no longer an approval page (switched to a code page, or a real error), hand that back.
+            if (!parsed.needsApproval) return parsed
+            if (attempt < 2) Thread.sleep(3_000)   // still pending — wait before retrying
+        }
+        return Result(needsApproval = true,
+            mfaMessage = "Still waiting for approval. Approve the notification on your device, then tap Continue.")
+    }
+
     /** Exchanges an [authCode] for tokens by calling Amazon's /auth/register endpoint. */
     fun performDeviceRegistration(authCode: String): TokenData {
         val regData = mapOf(
@@ -417,7 +458,9 @@ class LoginFlow {
             return Result(error = "Session expired. Please try again.")
         }
 
-        // CVF (Customer Verification Flow — email/push notification)
+        // CVF (Customer Verification Flow) — covers BOTH an email/SMS code page AND a device
+        // approval page ("approve the notification on your device"). They share /ap/cvf, so we
+        // must tell them apart: the code page has a code-entry input; the approval page does not.
         if (body.contains("/ap/cvf") || body.contains("cvf-widget") ||
             body.contains("fwcim-form") || body.contains("verification-code-form")) {
             val action = (Regex("""<form[^>]*id="verification-code-form"[^>]*action="([^"]+)"""").find(body)
@@ -426,8 +469,23 @@ class LoginFlow {
                 ?.groupValues?.get(1)?.replace("&amp;", "&")
             if (action != null) formAction = action
             hiddenFields = extractHiddenFields(body)
-            Log.w(TAG, "CVF page, form=${safeUrlForLog(resolveTrustedAmazonUrl(formAction, formBaseUrl))}, fields=${hiddenFields.keys}")
-            return Result(needsMfa = true, mfaMessage = "Amazon sent a verification code to your email. Enter it below.")
+
+            val hasCodeInput = body.contains("verification-code-form") ||
+                body.contains("cvf-input-code") ||
+                Regex("""<input[^>]*name="(otpCode|code)"""").containsMatchIn(body)
+            val isApproval = !hasCodeInput && (
+                body.contains("transactionApprovalStatus", ignoreCase = true) ||
+                body.contains("polling", ignoreCase = true) ||
+                body.contains("notification", ignoreCase = true) ||
+                body.contains("approve", ignoreCase = true))
+
+            Log.w(TAG, "CVF page (approval=$isApproval), form=${safeUrlForLog(resolveTrustedAmazonUrl(formAction, formBaseUrl))}, fields=${hiddenFields.keys}")
+            return if (isApproval) {
+                Result(needsApproval = true,
+                    mfaMessage = "Approve the sign-in notification on your device, then tap Continue.")
+            } else {
+                Result(needsMfa = true, mfaMessage = "Amazon sent a verification code to your email. Enter it below.")
+            }
         }
 
         // TOTP MFA
