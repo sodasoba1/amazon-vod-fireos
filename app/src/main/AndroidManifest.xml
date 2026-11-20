@@ -4,6 +4,13 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Read the installed stock Prime Video app's version to build the firmware string.
+         Required because targetSdk >= 30 restricts package visibility. -->
+    <queries>
+        <package android:name="com.amazon.firebat" />
+        <package android:name="com.amazon.avod" />
+    </queries>
+
     <!-- Fire TV / leanback -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />

@@ -161,7 +161,7 @@ class MainActivity : AppCompatActivity() {
                 return
             }
         authService = AmazonAuthService(tokenFile)
-        apiService = AmazonApiService(authService)
+        apiService = AmazonApiService(authService, applicationContext)
         ProgressRepository.init(applicationContext)
 
         adapter = ContentAdapter(
