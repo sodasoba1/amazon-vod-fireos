@@ -169,9 +169,16 @@ class CblLoginFlow {
         ).execute()
         val body = resp.body?.string() ?: ""
         Log.w(TAG, "Poll /auth/register: HTTP ${resp.code}, body=${body.length}")
+        if (!resp.isSuccessful) {
+            // Failure bodies carry no tokens, so log them in full — this is what tells us
+            // "code not claimed yet" apart from a malformed request.
+            Log.w(TAG, "Poll error body: ${body.take(400)}")
+        }
 
-        // 401 = user hasn't confirmed the code yet.
-        if (resp.code == 401) return PollResult.Pending
+        // 401 is the documented "not confirmed yet". Amazon also answers 400 before the code is
+        // claimed for some device types, so keep polling on both rather than aborting the flow,
+        // and let the code's expiry end the loop. The logged body above tells us which it was.
+        if (resp.code == 401 || resp.code == 400) return PollResult.Pending
         if (!resp.isSuccessful) return PollResult.Error(errorOf(body) ?: "HTTP ${resp.code}")
 
         val json = gson.fromJson(body, JsonObject::class.java)
