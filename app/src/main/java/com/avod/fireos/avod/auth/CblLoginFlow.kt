@@ -24,8 +24,10 @@ import java.util.UUID
  *      Amazon links the device. HTTP 401 means "not confirmed yet".
  *
  * The same flow is used by mkb79/Audible (#906), audible-rs and aioamazondevices. Note that
- * code_data.domain must be "Device" — "DeviceLegacy" is rejected with HTTP 400 InvalidValue — so
- * registration_data.domain is also "Device" here rather than the password flow's "DeviceLegacy".
+ * The two domains differ and both matter: code_data.domain must be "Device" (the codepair endpoint
+ * rejects "DeviceLegacy"), while registration_data.domain must be "DeviceLegacy" to match the
+ * registration profile Amazon accepts — sending "Device" there returns
+ * {"code":"InvalidDevice","message":"The device information is invalid."}.
  *
  * UNVERIFIED FOR THIS DEVICE TYPE: the flow is confirmed working for Audible's device type, but
  * whether /auth/create/codepair accepts this device type has not been tested. If codepair returns 400, that is the first thing to suspect.
@@ -47,7 +49,13 @@ class CblLoginFlow {
          *   A43PXU4ZN2AL1 = "Prime Video for Android" (com.amazon.avod.thirdpartyclient) — the
          *   type the password flow registers as (AmazonAuthService.DEVICE_TYPE_ID).
          */
-        val CBL_DEVICE_TYPE = AmazonAuthService.DEVICE_TYPE_ID
+        /**
+         * Device type for the code pair + its registration. AKPGW064GI9HE (Fire TV Stick 4K,
+         * AFTMM/mantis) is CONFIRMED accepted by /auth/create/codepair (HTTP 200).
+         * Deliberately independent of AmazonAuthService.DEVICE_TYPE_ID so the password flow keeps
+         * its own known-good profile (A43PXU4ZN2AL1 = Prime Video for Android).
+         */
+        const val CBL_DEVICE_TYPE = "AKPGW064GI9HE"
     }
 
     data class CodePair(
@@ -131,9 +139,12 @@ class CblLoginFlow {
      */
     fun pollOnce(pair: CodePair): PollResult {
         val regData = mapOf(
-            "domain"        to "Device",
+            // "DeviceLegacy" matches the password flow's registration, which Amazon accepts.
+            // (code_data.domain above must still be "Device" — that is the codepair endpoint.)
+            "domain"        to "DeviceLegacy",
             "device_type"   to CBL_DEVICE_TYPE,
             "device_serial" to deviceId,
+            "device_name"   to "%FIRST_NAME%%FIRST_NAME_POSSESSIVE_STRING%%DUPE_STRATEGY_1ST%FireOS AVOD",
             "app_name"      to AmazonAuthService.APP_NAME,
             "app_version"   to AmazonAuthService.APP_VERSION,
             "device_model"  to AmazonAuthService.DEVICE_MODEL,

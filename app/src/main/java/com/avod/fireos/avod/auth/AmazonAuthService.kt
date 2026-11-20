@@ -42,7 +42,7 @@ class AmazonAuthService(private val tokenFile: File) {
          * Note: changing the device type changes the client id, so existing tokens are invalidated
          * and users must sign in again once.
          */
-        const val DEVICE_TYPE_ID = "AKPGW064GI9HE"
+        const val DEVICE_TYPE_ID = "A43PXU4ZN2AL1"
         const val APP_NAME = "com.amazon.avod.thirdpartyclient"
         const val APP_VERSION = "296016847"
 
