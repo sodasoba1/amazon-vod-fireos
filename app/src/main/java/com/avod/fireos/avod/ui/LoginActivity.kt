@@ -179,13 +179,13 @@ class LoginActivity : AppCompatActivity() {
             try {
                 val pair = withContext(Dispatchers.IO) { cblFlow.createCodePair() }
                 progressBar.visibility = View.GONE
-                showStatus("On your phone or computer, go to:\n${pair.verificationUri}\n\nand enter code:  ${pair.userCode}\n\nWaiting for approval...")
+                showStatus("On your phone or computer, go to:\n${pair.verificationUri}\n\nand enter code:  ${pair.publicCode}\n\nWaiting for approval...")
                 tvStatus.setTextColor(0xFF00A8E0.toInt())
 
                 val deadline = System.currentTimeMillis() + pair.expiresInSeconds * 1000L
                 while (System.currentTimeMillis() < deadline) {
                     delay(pair.intervalSeconds.coerceAtLeast(2) * 1000L)
-                    when (val r = withContext(Dispatchers.IO) { cblFlow.pollOnce(pair.deviceCode) }) {
+                    when (val r = withContext(Dispatchers.IO) { cblFlow.pollOnce(pair) }) {
                         CblLoginFlow.PollResult.Pending -> { /* keep waiting */ }
                         is CblLoginFlow.PollResult.Success -> {
                             withContext(Dispatchers.IO) { tokenStore.save(r.tokenData) }
