@@ -31,6 +31,16 @@ android {
     }
 
     signingConfigs {
+        // Pinned debug keystore committed to the repo so every build — local and CI — shares one
+        // signature. This lets debug APKs install as updates over each other (adb install -r)
+        // without the "signatures do not match" uninstall, preserving the login session.
+        // A debug keystore is non-sensitive by design (well-known android/android credentials).
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         if (hasReleaseSigning) {
             create("release") {
                 storeFile = file(requireNotNull(releaseStoreFile))
@@ -50,6 +60,7 @@ android {
         }
         getByName("debug") {
             isDebuggable = true
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

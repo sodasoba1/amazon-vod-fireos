@@ -23,6 +23,10 @@ replay_pid*
 *.keystore
 *.jks
 *.p12
+# Exception: the debug keystore is intentionally committed. It is non-sensitive
+# (well-known android/android credentials, debug-only) and shared so every build
+# has one signature. It CANNOT sign release builds — the release key stays in CI secrets.
+!app/debug.keystore
 *.pfx
 
 # Secrets
