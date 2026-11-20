@@ -52,7 +52,6 @@ class LoginActivity : AppCompatActivity() {
     private val loginFlow  by lazy { LoginFlow() }
 
     private var needsMfa = false
-    private var needsApproval = false
     private var busy = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -100,9 +99,7 @@ class LoginActivity : AppCompatActivity() {
         val email = etEmail.text.toString().trim()
         val password = etPassword.text.toString()
 
-        if (needsApproval) {
-            doApproval()
-        } else if (needsMfa) {
+        if (needsMfa) {
             val mfaCode = etMfa.text.toString().trim()
             if (mfaCode.isEmpty()) { showStatus("Please enter MFA code"); return }
             doMfa(mfaCode)
@@ -146,35 +143,10 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-    private fun doApproval() {
-        showLoading(true); showStatus("Checking approval...")
-        scope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) { loginFlow.submitApproval() }
-                handleResult(result)
-            } catch (e: Exception) {
-                Log.w(TAG, "Approval error (${e.javaClass.simpleName})")
-                showStatus("Approval error: ${e.message}")
-            } finally {
-                showLoading(false)
-            }
-        }
-    }
-
     private fun handleResult(result: LoginFlow.Result) {
         when {
-            result.needsApproval -> {
-                needsApproval = true
-                needsMfa = false
-                mfaContainer.visibility = View.GONE   // no code to type for device approval
-                btnLogin.text = "Continue"
-                showStatus(result.mfaMessage ?: "Approve the sign-in on your device, then tap Continue.")
-                tvStatus.setTextColor(0xFF00A8E0.toInt())
-                btnLogin.requestFocus()
-            }
             result.needsMfa -> {
                 needsMfa = true
-                needsApproval = false
                 mfaContainer.visibility = View.VISIBLE
                 btnLogin.text = "Verify"
                 showStatus(result.mfaMessage ?: "Enter verification code")
@@ -182,7 +154,6 @@ class LoginActivity : AppCompatActivity() {
                 etMfa.requestFocus()
             }
             result.authCode != null -> {
-                needsApproval = false
                 needsMfa = false
                 showStatus("Registering device...")
                 tvStatus.setTextColor(0xFF00A8E0.toInt())
@@ -193,11 +164,7 @@ class LoginActivity : AppCompatActivity() {
                 showStatus(result.error ?: "Login failed")
                 // Re-anchor focus so the user can edit and retry — otherwise D-pad focus can be
                 // left stranded after a failed attempt.
-                when {
-                    needsMfa    -> etMfa.requestFocus()
-                    needsApproval -> btnLogin.requestFocus()
-                    else        -> etEmail.requestFocus()
-                }
+                if (needsMfa) etMfa.requestFocus() else etEmail.requestFocus()
             }
         }
     }
