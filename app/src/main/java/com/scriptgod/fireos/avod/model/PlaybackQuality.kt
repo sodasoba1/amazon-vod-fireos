@@ -31,6 +31,18 @@ data class PlaybackQuality(
 
         const val PREF_KEY = "video_quality"
 
+        /**
+         * Stored pref value for Auto mode. Resolved at playback time to the best tier the
+         * device supports (see PlaybackOrchestrator.resolveQuality), mirroring the stock app's
+         * VideoQualityManager default of BEST. This is the first-run default (a null pref is
+         * treated as AUTO).
+         */
+        const val PREF_AUTO = "AUTO"
+
+        /**
+         * Maps an explicit stored pref to a fixed request tier. AUTO/null are handled upstream
+         * in resolveQuality and never reach here; an unrecognised value falls back to HD.
+         */
         fun fromPrefValue(value: String?) = when (value) {
             "HD_H265" -> HD_H265
             "UHD_HDR" -> UHD_HDR

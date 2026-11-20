@@ -325,24 +325,53 @@ class PlaybackOrchestrator(
         }
         val pref = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
             .getString(PlaybackQuality.PREF_KEY, null)
+
+        // AUTO (and the first-run default): mirror the stock app's VideoQualityManager, which
+        // defaults to BEST — request the highest tier the device supports and let ExoPlayer's
+        // adaptive track selection serve the best representation that fits. The UHD manifest
+        // carries the full 2160/1080/720 ladder, so 1080p comes through here automatically when
+        // 4K isn't available or bandwidth is limited; there is no separate 1080p request tier.
+        if (pref == null || pref == PlaybackQuality.PREF_AUTO) {
+            val best = uhdQualityOrNull()
+                ?: if (DeviceCapabilities.deviceSupportsH265()) PlaybackQuality.HD_H265 else PlaybackQuality.HD
+            Log.i(TAG, "Auto quality → ${best.videoQuality} (codec=${best.codecOverride} hdr=${best.hdrOverride})")
+            return best
+        }
+
         val requested = PlaybackQuality.fromPrefValue(pref)
         if (requested.videoQuality == "UHD") {
-            if (!DeviceCapabilities.deviceSupportsH265()) {
-                Toast.makeText(context, "H265 not supported — using HD H264", Toast.LENGTH_LONG).show()
+            val uhd = uhdQualityOrNull()
+            if (uhd == null) {
+                Log.w(TAG, "UHD requested but device not 4K-capable (HEVC Main L5 / HDCP 2.2) — using HD")
+                Toast.makeText(context, "4K unavailable on this device/link — using HD", Toast.LENGTH_LONG).show()
                 return PlaybackQuality.HD
             }
-            val hdrOverride = supportedHdrFormats().ifBlank { "None" }
-            if (hdrOverride == "None") {
-                Log.i(TAG, "Display reports no HDR10/Dolby Vision output; requesting UHD with HDR disabled")
-                return PlaybackQuality.UHD_SDR
-            }
-            return PlaybackQuality.UHD_HDR.copy(hdrOverride = hdrOverride)
+            return uhd
         }
         if (requested == PlaybackQuality.HD_H265 && !DeviceCapabilities.deviceSupportsH265()) {
             Toast.makeText(context, "H265 not supported — using HD H264", Toast.LENGTH_LONG).show()
             return PlaybackQuality.HD
         }
         return requested
+    }
+
+    /**
+     * The best UHD variant this device qualifies for, or null when it is not 4K-capable
+     * (no HEVC Main L5 decoder, or the HDCP link is definitely below 2.2).
+     *
+     * Mirrors the stock app's UHD gate: Main L5 decoder + HDCP 2.2. HDR is requested only when
+     * the display reports it AND a 10-bit Main10 L5 decoder is present; otherwise UHD SDR, whose
+     * manifest still carries the full resolution ladder down to 720p for adaptive selection.
+     */
+    @Suppress("DEPRECATION")
+    private fun uhdQualityOrNull(): PlaybackQuality? {
+        if (!DeviceCapabilities.supportsHevcMainL5()) return null
+        val hdcp = DeviceCapabilities.hdcpLevel()
+        if (hdcp != "UNKNOWN" && !DeviceCapabilities.supportsHdcp22()) return null
+        val hdrOverride = supportedHdrFormats().ifBlank { "None" }
+        return if (hdrOverride != "None" && DeviceCapabilities.supportsHevcMain10L5())
+            PlaybackQuality.UHD_HDR.copy(hdrOverride = hdrOverride)
+        else PlaybackQuality.UHD_SDR
     }
 
     private fun redactUrlForLog(raw: String?): String {

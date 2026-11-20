@@ -89,8 +89,14 @@ class AboutActivity : AppCompatActivity() {
     private fun setupQualitySection() {
         // H265 decoder + display HDR capability indicators
         val supportsH265 = DeviceCapabilities.deviceSupportsH265()
+        // 4K-specific gates, mirroring the stock app: Main L5 decoder + HDCP 2.2.
+        val supportsMainL5 = DeviceCapabilities.supportsHevcMainL5()
+        val supportsMain10L5 = DeviceCapabilities.supportsHevcMain10L5()
+        val hdcpLevel = DeviceCapabilities.hdcpLevel()
+        val hdcp22Ok = DeviceCapabilities.supportsHdcp22() || hdcpLevel == "UNKNOWN"
         val widevineLevel = DeviceCapabilities.widevineSecurityLevel()
         val supportsWidevineL1 = widevineLevel == "L1"
+        val uhdCapable = supportsMainL5 && supportsWidevineL1 && hdcp22Ok
         val hdrTypes = windowManager.defaultDisplay.hdrCapabilities?.supportedHdrTypes ?: intArrayOf()
         val hdrFormats = DeviceCapabilities.supportedHdrFormats(hdrTypes)
         val hdrLabel = when {
@@ -113,25 +119,29 @@ class AboutActivity : AppCompatActivity() {
         tvHdrBadge.text = if (supportsDisplayHdr) "HDR: ${hdrFormats.joinToString(" + ")}" else "No HDR10/DV output"
         tvQualityChip.text = when {
             !supportsWidevineL1 -> "SD only · Widevine L3"
-            supportsH265 && supportsDisplayHdr -> "4K HDR capable"
-            supportsH265 -> "4K SDR capable"
+            uhdCapable && supportsMain10L5 && supportsDisplayHdr -> "4K HDR capable"
+            uhdCapable -> "4K SDR capable"
+            supportsH265 -> "HD only (no 4K decoder/HDCP)"
             else -> "HD only"
         }
         findViewById<TextView>(R.id.tv_h265_support).text =
-            "Widevine: $widevineLevel  ·  HEVC: ${if (supportsH265) "Yes" else "No"}  ·  Display HDR: $hdrLabel"
+            "Widevine: $widevineLevel  ·  HEVC L5: ${if (supportsMainL5) "Yes" else "No"}" +
+                "  ·  HDCP: $hdcpLevel  ·  Display HDR: $hdrLabel"
 
         btnHd.isEnabled = supportsWidevineL1
         btnHdH265.isEnabled = supportsH265 && supportsWidevineL1
-        btnUhd.isEnabled = supportsH265 && supportsWidevineL1
+        btnUhd.isEnabled = uhdCapable
         btnHd.alpha = if (supportsWidevineL1) 1f else 0.45f
         btnHdH265.alpha = if (supportsH265 && supportsWidevineL1) 1f else 0.45f
-        btnUhd.alpha = if (supportsH265 && supportsWidevineL1) 1f else 0.45f
+        btnUhd.alpha = if (uhdCapable) 1f else 0.45f
 
         tvNote.text = when {
             !supportsWidevineL1 ->
                 "Widevine L3 is active. Amazon HD/UHD requests require Widevine L1, so playback is restricted to SD regardless of the saved quality preference."
-            !supportsH265 ->
-                "This device has no HEVC decoder, so the UHD request is unavailable. HD H264 remains available."
+            !supportsMainL5 ->
+                "This device has no HEVC Main L5 (4K) decoder, so the UHD request falls back to HD H264 (720p)."
+            !hdcp22Ok ->
+                "HDCP $hdcpLevel is below 2.2. Amazon releases 4K only over an HDCP 2.2 link, so the UHD request falls back to HD."
             !supportsDisplayHdr ->
                 "The 4K preset still requests UHD, but sends no HDR formats because the display reports neither HDR10 nor Dolby Vision. Amazon may return a lower tier if UHD SDR is unavailable."
             else ->

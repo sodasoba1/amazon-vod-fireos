@@ -39,23 +39,6 @@
                 android:textSize="@dimen/action_text_size" />
 
             <Button
-                android:id="@+id/btn_freevee"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:background="@drawable/nav_button_background"
-                android:backgroundTint="@null"
-                app:backgroundTint="@null"
-                android:minWidth="0dp"
-                android:nextFocusDown="@id/recycler_view"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:stateListAnimator="@null"
-                android:text="Freevee"
-                android:textAllCaps="false"
-                android:textColor="@color/nav_button_text"
-                android:textSize="@dimen/action_text_size" />
-
-            <Button
                 android:id="@+id/btn_watchlist"
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"

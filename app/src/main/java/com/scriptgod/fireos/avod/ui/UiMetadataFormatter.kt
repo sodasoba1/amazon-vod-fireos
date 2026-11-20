@@ -131,7 +131,6 @@ internal object UiMetadataFormatter {
             item.isSeriesContainer() -> parts += "Series overview"
         }
         when (item.primaryAvailabilityBadge()) {
-            "Freevee" -> parts += "Ad-supported"
             "Live" -> parts += "Live channel"
         }
         return parts.joinToString("  ·  ")

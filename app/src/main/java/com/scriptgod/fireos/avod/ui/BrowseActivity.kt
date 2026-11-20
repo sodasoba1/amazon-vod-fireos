@@ -234,12 +234,7 @@ class BrowseActivity : AppCompatActivity() {
             "episodes" -> CardPresentation.EPISODE
             else -> CardPresentation.POSTER
         }
-        val spanCount = when (presentation) {
-            CardPresentation.EPISODE -> 5
-            CardPresentation.SEASON -> 4
-            CardPresentation.LANDSCAPE -> 4
-            else -> 4
-        }
+        val spanCount = computeSpanCount(presentation)
         adapter = ContentAdapter(
             onItemClick = { item -> onItemSelected(item) },
             onMenuKey = { item -> showItemMenu(item) },
@@ -250,6 +245,29 @@ class BrowseActivity : AppCompatActivity() {
         recyclerView.layoutManager = GridLayoutManager(this, spanCount)
         recyclerView.adapter = adapter
         recyclerView.itemAnimator = null
+    }
+
+    /**
+     * Columns that actually fit the screen for the card size in use, so the grid packs densely
+     * like the native app instead of leaving fixed gaps. Derived from the display width minus the
+     * known horizontal chrome (page + grid-panel + recycler paddings), divided by one card cell
+     * (card width + spacing). Falls back to a sensible minimum per presentation.
+     */
+    private fun computeSpanCount(presentation: CardPresentation): Int {
+        val dm = resources.displayMetrics
+        // page padding (48+48) + grid-panel padding (12+12) + recycler padding (4+4)
+        val horizontalChromeDp = 48 + 48 + 12 + 12 + 4 + 4
+        val availablePx = dm.widthPixels - (horizontalChromeDp * dm.density).toInt()
+        val cardWidthDimen = when (presentation) {
+            CardPresentation.POSTER -> R.dimen.card_width
+            else -> R.dimen.landscape_card_width
+        }
+        val cellPx = resources.getDimensionPixelSize(cardWidthDimen) +
+            resources.getDimensionPixelSize(R.dimen.card_spacing)
+        val fit = if (cellPx > 0) availablePx / cellPx else 0
+        // Floor only guards against a degenerate 0/1-column grid; the computed fit drives the
+        // actual density (≈5-6 posters on a 1080p TV with the reduced card sizes).
+        return fit.coerceAtLeast(3)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {

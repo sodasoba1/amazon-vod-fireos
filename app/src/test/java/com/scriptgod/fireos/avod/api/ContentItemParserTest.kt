@@ -95,7 +95,7 @@ class ContentItemParserTest {
     }
 
     @Test
-    fun parseCollectionElement_detectsFreeveeFromBadgeText() {
+    fun parseCollectionElement_detectsAdSupportedFreeContent() {
         val item = parse(
             """
             {
@@ -109,9 +109,11 @@ class ContentItemParserTest {
             """.trimIndent()
         )
 
+        // Ad-supported free titles are flagged (so they are excluded from "included with Prime"),
+        // but carry no dedicated availability bucket now that Freevee has been removed.
         assertFalse(item.isPrime)
         assertTrue(item.isFreeWithAds)
-        assertEquals(Availability.FREEVEE, item.availability)
+        assertEquals(Availability.UNKNOWN, item.availability)
     }
 
     @Test
