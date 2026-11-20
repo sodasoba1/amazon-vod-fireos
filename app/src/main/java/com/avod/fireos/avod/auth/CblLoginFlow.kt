@@ -47,7 +47,7 @@ class CblLoginFlow {
          *   A43PXU4ZN2AL1 = "Prime Video for Android" (com.amazon.avod.thirdpartyclient) — the
          *   type the password flow registers as (AmazonAuthService.DEVICE_TYPE_ID).
          */
-        const val CBL_DEVICE_TYPE = "AKPGW064GI9HE"
+        val CBL_DEVICE_TYPE = AmazonAuthService.DEVICE_TYPE_ID
     }
 
     data class CodePair(
