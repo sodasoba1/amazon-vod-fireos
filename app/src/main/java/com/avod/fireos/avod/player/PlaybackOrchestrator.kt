@@ -367,7 +367,7 @@ class PlaybackOrchestrator(
     private fun uhdQualityOrNull(): PlaybackQuality? {
         if (!DeviceCapabilities.supportsHevcMainL5()) return null
         val hdcp = DeviceCapabilities.hdcpLevel()
-        if (hdcp != "UNKNOWN" && !DeviceCapabilities.supportsHdcp22()) return null
+        if (hdcp != "UNKNOWN" && !DeviceCapabilities.supportsHdcp22(hdcp)) return null
         val hdrOverride = supportedHdrFormats().ifBlank { "None" }
         return if (hdrOverride != "None" && DeviceCapabilities.supportsHevcMain10L5())
             PlaybackQuality.UHD_HDR.copy(hdrOverride = hdrOverride)

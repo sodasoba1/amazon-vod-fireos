@@ -93,7 +93,7 @@ class AboutActivity : AppCompatActivity() {
         val supportsMainL5 = DeviceCapabilities.supportsHevcMainL5()
         val supportsMain10L5 = DeviceCapabilities.supportsHevcMain10L5()
         val hdcpLevel = DeviceCapabilities.hdcpLevel()
-        val hdcp22Ok = DeviceCapabilities.supportsHdcp22() || hdcpLevel == "UNKNOWN"
+        val hdcp22Ok = DeviceCapabilities.supportsHdcp22(hdcpLevel) || hdcpLevel == "UNKNOWN"
         val widevineLevel = DeviceCapabilities.widevineSecurityLevel()
         val supportsWidevineL1 = widevineLevel == "L1"
         val uhdCapable = supportsMainL5 && supportsWidevineL1 && hdcp22Ok
@@ -106,6 +106,7 @@ class AboutActivity : AppCompatActivity() {
             else -> "No HDR10/Dolby Vision"
         }
         val prefs = getSharedPreferences("settings", MODE_PRIVATE)
+        val btnAuto   = findViewById<Button>(R.id.btn_quality_auto)
         val btnHd     = findViewById<Button>(R.id.btn_quality_hd)
         val btnHdH265 = findViewById<Button>(R.id.btn_quality_hd_h265)
         val btnUhd    = findViewById<Button>(R.id.btn_quality_uhd)
@@ -128,6 +129,9 @@ class AboutActivity : AppCompatActivity() {
             "Widevine: $widevineLevel  ·  HEVC L5: ${if (supportsMainL5) "Yes" else "No"}" +
                 "  ·  HDCP: $hdcpLevel  ·  Display HDR: $hdrLabel"
 
+        // Auto is always selectable — it degrades gracefully to whatever the device supports.
+        btnAuto.isEnabled = true
+        btnAuto.alpha = 1f
         btnHd.isEnabled = supportsWidevineL1
         btnHdH265.isEnabled = supportsH265 && supportsWidevineL1
         btnUhd.isEnabled = uhdCapable
@@ -148,25 +152,28 @@ class AboutActivity : AppCompatActivity() {
                 "The 4K preset requests UHD and only the HDR formats reported by the connected display. Amazon may still return a lower tier depending on title rights, DRM and availability."
         }
 
-        fun updateButtons(selected: PlaybackQuality) {
-            btnHd.isSelected = selected == PlaybackQuality.HD
-            btnHdH265.isSelected = selected == PlaybackQuality.HD_H265
-            btnUhd.isSelected = selected == PlaybackQuality.UHD_HDR
+        // Highlight by stored pref string so Auto (which has no fixed PlaybackQuality) can be
+        // shown as selected. An unset pref means Auto — the default.
+        fun highlightForPref(pref: String?) {
+            btnAuto.isSelected   = pref == null || pref == PlaybackQuality.PREF_AUTO
+            btnHd.isSelected     = pref == PlaybackQuality.toPrefValue(PlaybackQuality.HD)
+            btnHdH265.isSelected = pref == PlaybackQuality.toPrefValue(PlaybackQuality.HD_H265)
+            btnUhd.isSelected    = pref == PlaybackQuality.toPrefValue(PlaybackQuality.UHD_HDR)
         }
 
-        // Apply initial highlight
-        val initialQuality = PlaybackQuality.fromPrefValue(prefs.getString(PlaybackQuality.PREF_KEY, null))
-        updateButtons(initialQuality)
+        // Apply initial highlight (unset pref = Auto)
+        highlightForPref(prefs.getString(PlaybackQuality.PREF_KEY, null))
 
-        fun save(q: PlaybackQuality) {
-            prefs.edit().putString(PlaybackQuality.PREF_KEY, PlaybackQuality.toPrefValue(q)).apply()
-            updateButtons(q)
-            Toast.makeText(this, "Quality set to ${btnLabel(q)} — takes effect on next playback", Toast.LENGTH_SHORT).show()
+        fun savePref(prefValue: String, label: String) {
+            prefs.edit().putString(PlaybackQuality.PREF_KEY, prefValue).apply()
+            highlightForPref(prefValue)
+            Toast.makeText(this, "Quality set to $label — takes effect on next playback", Toast.LENGTH_SHORT).show()
         }
 
-        btnHd.setOnClickListener     { save(PlaybackQuality.HD) }
-        btnHdH265.setOnClickListener { save(PlaybackQuality.HD_H265) }
-        btnUhd.setOnClickListener    { save(PlaybackQuality.UHD_HDR) }
+        btnAuto.setOnClickListener   { savePref(PlaybackQuality.PREF_AUTO, "Auto") }
+        btnHd.setOnClickListener     { savePref(PlaybackQuality.toPrefValue(PlaybackQuality.HD), btnLabel(PlaybackQuality.HD)) }
+        btnHdH265.setOnClickListener { savePref(PlaybackQuality.toPrefValue(PlaybackQuality.HD_H265), btnLabel(PlaybackQuality.HD_H265)) }
+        btnUhd.setOnClickListener    { savePref(PlaybackQuality.toPrefValue(PlaybackQuality.UHD_HDR), btnLabel(PlaybackQuality.UHD_HDR)) }
 
     }
 

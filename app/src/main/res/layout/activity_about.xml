@@ -400,6 +400,23 @@
                         android:layout_marginBottom="14dp">
 
                         <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btn_quality_auto"
+                            android:layout_width="0dp"
+                            android:layout_height="56dp"
+                            android:layout_weight="1"
+                            android:layout_marginEnd="10dp"
+                            android:background="@drawable/settings_quality_option_background"
+                            android:minWidth="0dp"
+                            android:paddingStart="18dp"
+                            android:paddingEnd="18dp"
+                            android:text="Auto"
+                            android:textAllCaps="false"
+                            android:textColor="@color/settings_quality_option_text"
+                            android:textSize="@dimen/action_text_size"
+                            android:stateListAnimator="@null"
+                            android:nextFocusUp="@id/btn_about_back" />
+
+                        <androidx.appcompat.widget.AppCompatButton
                             android:id="@+id/btn_quality_hd"
                             android:layout_width="0dp"
                             android:layout_height="56dp"

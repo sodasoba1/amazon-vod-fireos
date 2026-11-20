@@ -122,8 +122,8 @@ object DeviceCapabilities {
      * (the caller logs rather than hard-blocking, since some devices report NONE until a
      * secure session is active).
      */
-    fun supportsHdcp22(): Boolean {
-        val m = Regex("""(\d+)\.(\d+)""").find(hdcpLevel()) ?: return false
+    fun supportsHdcp22(level: String = hdcpLevel()): Boolean {
+        val m = Regex("""(\d+)\.(\d+)""").find(level) ?: return false
         val major = m.groupValues[1].toInt()
         val minor = m.groupValues[2].toInt()
         return major > 2 || (major == 2 && minor >= 2)
