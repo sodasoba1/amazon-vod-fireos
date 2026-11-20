@@ -53,6 +53,7 @@ class LoginActivity : AppCompatActivity() {
 
     private var needsMfa = false
     private var needsApproval = false
+    private var busy = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -95,6 +96,7 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun onLoginClicked() {
+        if (busy) return   // a request is in flight; ignore re-entry without disabling the button
         val email = etEmail.text.toString().trim()
         val password = etPassword.text.toString()
 
@@ -187,7 +189,16 @@ class LoginActivity : AppCompatActivity() {
                 tvStatus.visibility = View.VISIBLE
                 registerDevice(result.authCode)
             }
-            else -> showStatus(result.error ?: "Login failed")
+            else -> {
+                showStatus(result.error ?: "Login failed")
+                // Re-anchor focus so the user can edit and retry — otherwise D-pad focus can be
+                // left stranded after a failed attempt.
+                when {
+                    needsMfa    -> etMfa.requestFocus()
+                    needsApproval -> btnLogin.requestFocus()
+                    else        -> etEmail.requestFocus()
+                }
+            }
         }
     }
 
@@ -216,7 +227,10 @@ class LoginActivity : AppCompatActivity() {
 
     private fun showLoading(loading: Boolean) {
         progressBar.visibility = if (loading) View.VISIBLE else View.GONE
-        btnLogin.isEnabled = !loading
+        // Do NOT disable btnLogin here: on a D-pad (Fire TV) disabling the currently focused
+        // button drops focus into limbo and the user can no longer navigate back to the input
+        // fields. Re-entry is guarded by `busy` instead.
+        busy = loading
     }
 
     private fun showStatus(message: String) {
