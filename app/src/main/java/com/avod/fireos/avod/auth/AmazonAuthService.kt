@@ -1,5 +1,6 @@
 package com.avod.fireos.avod.auth
 
+import android.os.Build
 import android.util.Log
 import com.avod.fireos.avod.model.TokenData
 import com.avod.fireos.avod.model.TokenRefreshResponse
@@ -25,13 +26,16 @@ class AmazonAuthService(private val tokenFile: File) {
     companion object {
         private const val TAG = "AmazonAuthService"
 
-        // Device fingerprint — SHIELD Android TV (common.py:55-58, login.py:551-560)
+        // Known generic Android token-registration DTID. Do not impersonate an NVIDIA Shield —
+        // report the real hardware instead. These are computed properties, so android.os.Build is
+        // never touched during class init (which would break JVM unit tests).
         const val DEVICE_TYPE_ID = "A43PXU4ZN2AL1"
         const val APP_NAME = "com.amazon.avod.thirdpartyclient"
         const val APP_VERSION = "296016847"
-        const val DEVICE_MODEL = "mdarcy/nvidia/SHIELD Android TV"
-        const val OS_VERSION = "NVIDIA/mdarcy/mdarcy:11/RQ1A.210105.003/7094531_2971.7725:user/release-keys"
-        const val USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 11; SHIELD Android TV RQ1A.210105.003)"
+        val DEVICE_MODEL: String get() = Build.MODEL.ifBlank { "Android" }
+        val OS_VERSION: String get() = Build.FINGERPRINT.ifBlank { "Android " + Build.VERSION.RELEASE }
+        val USER_AGENT: String
+            get() = "Dalvik/2.1.0 (Linux; U; Android " + Build.VERSION.RELEASE + "; " + Build.MODEL + ")"
 
         private val AUTHENTICATED_API_HOSTS = setOf(
             "atv-ps-eu.amazon.de", "atv-ps-eu.amazon.co.uk",
