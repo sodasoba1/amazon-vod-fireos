@@ -14,11 +14,13 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.avod.fireos.avod.R
+import com.avod.fireos.avod.auth.CblLoginFlow
 import com.avod.fireos.avod.auth.LoginFlow
 import com.avod.fireos.avod.auth.TokenStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -50,6 +52,8 @@ class LoginActivity : AppCompatActivity() {
 
     private val tokenStore by lazy { TokenStore(this) }
     private val loginFlow  by lazy { LoginFlow() }
+    private val cblFlow    by lazy { CblLoginFlow() }
+    private var cblJob: Job? = null
 
     private var needsMfa = false
 
@@ -86,6 +90,7 @@ class LoginActivity : AppCompatActivity() {
         }
 
         btnLogin.setOnClickListener { onLoginClicked() }
+        findViewById<Button>(R.id.btn_code_login).setOnClickListener { startCblLogin() }
         btnSkip.setOnClickListener {
             if (tokenStore.isValid()) launchMain()
             else showStatus("No valid token found")
@@ -158,6 +163,53 @@ class LoginActivity : AppCompatActivity() {
                 registerDevice(result.authCode)
             }
             else -> showStatus(result.error ?: "Login failed")
+        }
+    }
+
+    /**
+     * Code-Based Linking: ask Amazon for a code, show the user amazon.com/code + the code, then
+     * poll until they approve on their phone. No password or email MFA — sidesteps the throttle.
+     */
+    private fun startCblLogin() {
+        cblJob?.cancel()
+        progressBar.visibility = View.VISIBLE
+        showStatus("Getting a sign-in code...")
+        tvStatus.setTextColor(0xFF00A8E0.toInt())
+        cblJob = scope.launch {
+            try {
+                val pair = withContext(Dispatchers.IO) { cblFlow.createCodePair() }
+                progressBar.visibility = View.GONE
+                showStatus("On your phone or computer, go to:\n${pair.verificationUri}\n\nand enter code:  ${pair.userCode}\n\nWaiting for approval...")
+                tvStatus.setTextColor(0xFF00A8E0.toInt())
+
+                val deadline = System.currentTimeMillis() + pair.expiresInSeconds * 1000L
+                while (System.currentTimeMillis() < deadline) {
+                    delay(pair.intervalSeconds.coerceAtLeast(2) * 1000L)
+                    when (val r = withContext(Dispatchers.IO) { cblFlow.pollOnce(pair.deviceCode) }) {
+                        CblLoginFlow.PollResult.Pending -> { /* keep waiting */ }
+                        is CblLoginFlow.PollResult.Success -> {
+                            withContext(Dispatchers.IO) { tokenStore.save(r.tokenData) }
+                            Log.w(TAG, "CBL login successful, token saved")
+                            showStatus("Login successful!")
+                            tvStatus.setTextColor(0xFF00CC00.toInt())
+                            launchMain()
+                            return@launch
+                        }
+                        is CblLoginFlow.PollResult.Error -> {
+                            showStatus("Code sign-in failed: ${r.message}")
+                            tvStatus.setTextColor(0xFFFF4444.toInt())
+                            return@launch
+                        }
+                    }
+                }
+                showStatus("Code expired — tap 'Sign in with a code' to try again.")
+                tvStatus.setTextColor(0xFFFF4444.toInt())
+            } catch (e: Exception) {
+                Log.w(TAG, "CBL error (${e.javaClass.simpleName})")
+                progressBar.visibility = View.GONE
+                showStatus("Code sign-in error: ${e.message}")
+                tvStatus.setTextColor(0xFFFF4444.toInt())
+            }
         }
     }
 
