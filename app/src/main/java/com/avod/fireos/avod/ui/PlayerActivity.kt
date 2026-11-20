@@ -1,0 +1,506 @@
+package com.avod.fireos.avod.ui
+
+import android.content.Context
+import android.os.Bundle
+import android.util.Log
+import android.view.KeyEvent
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
+import androidx.media3.common.Tracks
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.ui.PlayerView
+import com.avod.fireos.avod.R
+import com.avod.fireos.avod.api.AmazonApiService
+import com.avod.fireos.avod.auth.AmazonAuthService
+import com.avod.fireos.avod.auth.TokenStore
+import com.avod.fireos.avod.data.ProgressRepository
+import com.avod.fireos.avod.model.PlaybackQuality
+import com.avod.fireos.avod.player.BifThumbnailProvider
+import com.avod.fireos.avod.player.DeviceCapabilities
+import com.avod.fireos.avod.player.PlaybackOrchestrator
+import com.avod.fireos.avod.player.SeekPreviewController
+import com.avod.fireos.avod.player.TrackMenuController
+import com.avod.fireos.avod.player.VideoFormatLabeler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+
+@UnstableApi
+class PlayerActivity : AppCompatActivity() {
+
+    companion object {
+        private const val TAG = "PlayerActivity"
+        const val EXTRA_ASIN          = "extra_asin"
+        const val EXTRA_TITLE         = "extra_title"
+        const val EXTRA_CONTENT_TYPE  = "extra_content_type"
+        const val EXTRA_MATERIAL_TYPE = "extra_material_type"
+        const val EXTRA_RESUME_MS     = "extra_resume_ms"
+        const val EXTRA_SERIES_ASIN   = "extra_series_asin"
+        const val EXTRA_SEASON_ASIN   = "extra_season_asin"
+    }
+
+    // --- Views ---
+    private lateinit var playerView: PlayerView
+    private lateinit var progressBar: ProgressBar
+    private lateinit var tvError: TextView
+    private lateinit var tvNotice: TextView
+    private val noticeHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private lateinit var trackButtons: LinearLayout
+    private lateinit var tvPlaybackTitle: TextView
+    private lateinit var tvPlaybackStatus: TextView
+    private lateinit var tvVideoFormat: TextView
+    private lateinit var tvAudioFormat: TextView
+    private lateinit var tvPlaybackHint: TextView
+    private lateinit var btnAudio: Button
+    private lateinit var btnSubtitle: Button
+    private var resumePlaybackAfterPause = false
+
+    // --- Controllers ---
+    private lateinit var orchestrator: PlaybackOrchestrator
+    private lateinit var seekPreview: SeekPreviewController
+    private lateinit var trackMenu: TrackMenuController
+
+    // --- Scope ---
+    private val scopeJob = Job()
+    private val scope = CoroutineScope(Dispatchers.Main + scopeJob)
+
+    // -------------------------------------------------------------------------
+    // Lifecycle
+    // -------------------------------------------------------------------------
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        supportActionBar?.hide()
+
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            or View.SYSTEM_UI_FLAG_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        )
+
+        setContentView(R.layout.activity_player)
+        playerView       = findViewById(R.id.player_view)
+        progressBar      = findViewById(R.id.progress_bar)
+        tvError          = findViewById(R.id.tv_error)
+        tvNotice         = findViewById(R.id.tv_notice)
+        trackButtons     = findViewById(R.id.track_buttons)
+        tvPlaybackTitle  = findViewById(R.id.tv_playback_title)
+        tvPlaybackStatus = findViewById(R.id.tv_playback_status)
+        tvVideoFormat    = findViewById(R.id.tv_video_format)
+        tvAudioFormat    = findViewById(R.id.tv_audio_format)
+        tvPlaybackHint   = findViewById(R.id.tv_playback_hint)
+        btnAudio         = findViewById(R.id.btn_audio)
+        btnSubtitle      = findViewById(R.id.btn_subtitle)
+
+        tvPlaybackTitle.text = intent.getStringExtra(EXTRA_TITLE) ?: "Now Playing"
+        tvPlaybackHint.text  = "Press MENU for tracks. Press Back to exit."
+        tvVideoFormat.visibility = View.GONE
+        playerView.keepScreenOn = false
+        playerView.isFocusable = true
+        playerView.isFocusableInTouchMode = true
+        playerView.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+        playerView.setControllerShowTimeoutMs(6_000)
+        playerView.setShowSubtitleButton(false)
+        playerView.post {
+            playerView.findViewById<View>(androidx.media3.ui.R.id.exo_subtitle)?.visibility = View.GONE
+            playerView.findViewById<View>(androidx.media3.ui.R.id.exo_settings)?.visibility = View.GONE
+            playerView.requestFocus()
+        }
+        applyDeviceOverlayTuning()
+
+        val asin = intent.getStringExtra(EXTRA_ASIN)
+            ?: run { showError("No ASIN provided"); return }
+
+        val tokenFile = TokenStore.findTokenFile(this)
+            ?: run { finish(); return }
+        val authService = AmazonAuthService(tokenFile)
+        val apiService  = AmazonApiService(authService)
+        ProgressRepository.init(applicationContext)
+
+        orchestrator = PlaybackOrchestrator(
+            context          = this,
+            authService      = authService,
+            apiService       = apiService,
+            scope            = scope,
+            supportedHdrFormats = ::supportedHdrFormats,
+            callbacks        = orchestratorCallbacks
+        )
+        orchestrator.currentAsin       = asin
+        orchestrator.currentSeriesAsin = intent.getStringExtra(EXTRA_SERIES_ASIN) ?: ""
+        orchestrator.currentSeasonAsin = intent.getStringExtra(EXTRA_SEASON_ASIN) ?: ""
+
+        authService.onMediaRequestObserved = { url -> orchestrator.onMediaUrlObserved(url) }
+
+        seekPreview = SeekPreviewController(
+            cardSeekThumbnail   = findViewById(R.id.card_seek_thumbnail),
+            ivSeekThumbnail     = findViewById(R.id.iv_seek_thumbnail),
+            tvSeekTime          = findViewById(R.id.tv_seek_time),
+            bifThumbnailProvider = orchestrator.bifThumbnailProvider,
+            playbackInfoProvider = { orchestrator.currentPlaybackInfo }
+        )
+
+        trackMenu = TrackMenuController(
+            context          = this,
+            trackButtons     = trackButtons,
+            btnAudio         = btnAudio,
+            btnSubtitle      = btnSubtitle,
+            audioTrackResolver = orchestrator.audioTrackResolver,
+            playerProvider   = { orchestrator.player }
+        )
+
+        // Fix D-pad seek increment (default is duration/20 ≈ 6 min on a 2 h film)
+        playerView.findViewById<androidx.media3.ui.DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)
+            ?.also { timeBar ->
+                timeBar.setKeyTimeIncrement(10_000L)
+                timeBar.addListener(object : androidx.media3.ui.TimeBar.OnScrubListener {
+                    override fun onScrubStart(tb: androidx.media3.ui.TimeBar, position: Long) = seekPreview.showThumbnailAt(position)
+                    override fun onScrubMove(tb: androidx.media3.ui.TimeBar, position: Long)  = seekPreview.showThumbnailAt(position)
+                    override fun onScrubStop(tb: androidx.media3.ui.TimeBar, position: Long, canceled: Boolean) = seekPreview.hideThumbnail()
+                })
+            }
+
+        playerView.setControllerVisibilityListener(
+            androidx.media3.ui.PlayerView.ControllerVisibilityListener { visibility ->
+                val visible = visibility == View.VISIBLE
+                trackMenu.onControllerVisibilityChanged(visible)
+                if (!visible) {
+                    seekPreview.hideThumbnail()
+                    playerView.post {
+                        if (trackButtons.visibility != View.VISIBLE) playerView.requestFocus()
+                    }
+                }
+            }
+        )
+
+        btnAudio.setOnClickListener    { trackMenu.showTrackSelectionDialog(androidx.media3.common.C.TRACK_TYPE_AUDIO) }
+        btnSubtitle.setOnClickListener { trackMenu.showTrackSelectionDialog(androidx.media3.common.C.TRACK_TYPE_TEXT) }
+        btnAudio.nextFocusDownId    = R.id.btn_subtitle
+        btnSubtitle.nextFocusUpId   = R.id.btn_audio
+
+        val materialType = intent.getStringExtra(EXTRA_MATERIAL_TYPE) ?: "Feature"
+        val intentResumeMs = intent.getLongExtra(EXTRA_RESUME_MS, 0L).coerceAtLeast(0L)
+        orchestrator.loadAndPlay(asin, materialType, intentResumeMs)
+    }
+
+    override fun onPause() {
+        if (::orchestrator.isInitialized) {
+            resumePlaybackAfterPause = orchestrator.player?.playWhenReady == true
+            orchestrator.persistPlaybackProgress(force = true)
+            orchestrator.player?.pause()
+        }
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            or View.SYSTEM_UI_FLAG_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        )
+        if (::orchestrator.isInitialized && resumePlaybackAfterPause) {
+            resumePlaybackAfterPause = false
+            orchestrator.player?.play()
+        }
+        if (::playerView.isInitialized) playerView.post {
+            if (!playerView.isControllerFullyVisible) playerView.requestFocus()
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (::orchestrator.isInitialized) {
+            orchestrator.persistPlaybackProgress(force = true)
+            orchestrator.stopReportingIfActive()
+            orchestrator.player?.pause()
+        }
+        updatePlaybackWakeState(false)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        scopeJob.cancel()
+        noticeHandler.removeCallbacksAndMessages(null)
+        if (::trackMenu.isInitialized) trackMenu.release()
+        if (::seekPreview.isInitialized) seekPreview.cancelPendingHide()
+        if (::orchestrator.isInitialized) orchestrator.release()
+        updatePlaybackWakeState(false)
+    }
+
+    // -------------------------------------------------------------------------
+    // Input
+    // -------------------------------------------------------------------------
+
+    private fun isMediaKey(keyCode: Int): Boolean = keyCode in setOf(
+        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+        KeyEvent.KEYCODE_MEDIA_PLAY,
+        KeyEvent.KEYCODE_MEDIA_PAUSE,
+        KeyEvent.KEYCODE_MEDIA_REWIND,
+        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+        KeyEvent.KEYCODE_HEADSETHOOK
+    )
+
+    private fun isDpadKey(keyCode: Int): Boolean = keyCode in setOf(
+        KeyEvent.KEYCODE_DPAD_UP,
+        KeyEvent.KEYCODE_DPAD_DOWN,
+        KeyEvent.KEYCODE_DPAD_LEFT,
+        KeyEvent.KEYCODE_DPAD_RIGHT,
+        KeyEvent.KEYCODE_DPAD_CENTER,
+        KeyEvent.KEYCODE_ENTER
+    )
+
+    private fun focusPlaybackControls(preferSeekBar: Boolean) {
+        val ids = if (preferSeekBar) {
+            listOf(
+                androidx.media3.ui.R.id.exo_progress,
+                androidx.media3.ui.R.id.exo_play_pause,
+                androidx.media3.ui.R.id.exo_rew,
+                androidx.media3.ui.R.id.exo_ffwd
+            )
+        } else {
+            listOf(
+                androidx.media3.ui.R.id.exo_play_pause,
+                androidx.media3.ui.R.id.exo_progress,
+                androidx.media3.ui.R.id.exo_rew,
+                androidx.media3.ui.R.id.exo_ffwd
+            )
+        }
+        for (id in ids) {
+            val candidate = playerView.findViewById<View>(id) ?: continue
+            if (candidate.isShown && candidate.isFocusable && candidate.requestFocus()) return
+        }
+        playerView.requestFocus()
+    }
+
+    private fun showControllerAndFocus(keyCode: Int) {
+        playerView.showController()
+        val preferSeekBar = keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
+            keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
+        playerView.postDelayed({ focusPlaybackControls(preferSeekBar) }, 120L)
+    }
+
+    private fun togglePlaybackFromRemote() {
+        val activePlayer = if (::orchestrator.isInitialized) orchestrator.player else null
+        if (activePlayer != null) {
+            if (activePlayer.playWhenReady) activePlayer.pause() else activePlayer.play()
+            playerView.showController()
+        }
+    }
+
+    private fun toggleTrackPanel() {
+        if (playerView.isControllerFullyVisible) {
+            trackButtons.clearFocus()
+            playerView.hideController()
+            playerView.post { playerView.requestFocus() }
+        } else {
+            playerView.showController()
+            btnAudio.postDelayed({
+                if (playerView.isControllerFullyVisible && trackButtons.visibility == View.VISIBLE) {
+                    btnAudio.requestFocus()
+                }
+            }, 120L)
+        }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_MENU) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) toggleTrackPanel()
+            return true
+        }
+
+        if (::playerView.isInitialized && isMediaKey(event.keyCode)) {
+            val handled = playerView.dispatchMediaKeyEvent(event)
+            if (handled) {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    playerView.showController()
+                    val seekKey = event.keyCode == KeyEvent.KEYCODE_MEDIA_REWIND ||
+                        event.keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
+                    playerView.post { focusPlaybackControls(seekKey) }
+                }
+                return true
+            }
+        }
+
+        if (::playerView.isInitialized && event.action == KeyEvent.ACTION_DOWN && isDpadKey(event.keyCode) &&
+            tvError.visibility != View.VISIBLE && ::orchestrator.isInitialized
+        ) {
+            if (!playerView.isControllerFullyVisible) {
+                if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER) {
+                    togglePlaybackFromRemote()
+                    playerView.postDelayed({ focusPlaybackControls(preferSeekBar = false) }, 120L)
+                } else {
+                    showControllerAndFocus(event.keyCode)
+                }
+                return true
+            }
+
+            val seekBar = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)
+            if (currentFocus == null || currentFocus == playerView) {
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                        togglePlaybackFromRemote()
+                        return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        focusPlaybackControls(preferSeekBar = true)
+                        return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        focusPlaybackControls(preferSeekBar = false)
+                        return true
+                    }
+                }
+            }
+
+            if (currentFocus == seekBar &&
+                (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
+            ) {
+                seekPreview.handleDpadSeek(event.keyCode, orchestrator.player)
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    // -------------------------------------------------------------------------
+    // OrchestratorCallbacks
+    // -------------------------------------------------------------------------
+
+    private val orchestratorCallbacks = object : PlaybackOrchestrator.Callbacks {
+        override fun onPlayerReady(player: ExoPlayer, trackSelector: DefaultTrackSelector) {
+            playerView.player = player
+            // Re-hide native track buttons that reappear when ExoPlayer is attached
+            playerView.post {
+                playerView.findViewById<View>(androidx.media3.ui.R.id.exo_subtitle)?.visibility = View.GONE
+                playerView.findViewById<View>(androidx.media3.ui.R.id.exo_settings)?.visibility = View.GONE
+                if (!playerView.isControllerFullyVisible) playerView.requestFocus()
+            }
+        }
+        override fun showBuffering() { progressBar.visibility = View.VISIBLE }
+        override fun hideBuffering() { progressBar.visibility = View.GONE }
+        override fun onError(message: String) = showError(message)
+        override fun onNotice(message: String) {
+            tvNotice.text = message
+            tvNotice.visibility = View.VISIBLE
+            noticeHandler.removeCallbacksAndMessages(null)
+            noticeHandler.postDelayed({ tvNotice.visibility = View.GONE }, 8_000L)
+        }
+        override fun onFinish()  = finish()
+        override fun onPlaybackLabelsChanged() = updateVideoFormatLabel()
+        override fun onTracksChanged(tracks: Tracks) {
+            trackMenu.updateTrackButtonLabels(tracks)
+            playerView.post {
+                playerView.findViewById<View>(androidx.media3.ui.R.id.exo_subtitle)?.visibility = View.GONE
+                playerView.findViewById<View>(androidx.media3.ui.R.id.exo_settings)?.visibility = View.GONE
+            }
+        }
+        override fun onKeepScreenOn(on: Boolean) = updatePlaybackWakeState(on)
+        override fun onTitleChanged(title: String) { tvPlaybackTitle.text = title }
+        override fun onQualityResolved(materialType: String, quality: PlaybackQuality) =
+            updatePlaybackStatus(materialType, quality)
+    }
+
+    // -------------------------------------------------------------------------
+    // UI helpers
+    // -------------------------------------------------------------------------
+
+    private fun updateVideoFormatLabel() {
+        val fmt = orchestrator.player?.videoFormat
+            ?: run { tvVideoFormat.text = ""; tvAudioFormat.visibility = View.GONE; return }
+        val codecs = fmt.codecs ?: ""
+        Log.i(TAG, "Video format: ${fmt.height}p mime=${fmt.sampleMimeType} codecs=$codecs colorTransfer=${fmt.colorInfo?.colorTransfer}")
+        val labels = VideoFormatLabeler.computeFormatLabels(
+            fmt, orchestrator.currentVideoBitrateKbps,
+            orchestrator.currentAudioBitrateKbps, orchestrator.currentAudioChannelCount
+        )
+        tvVideoFormat.text = labels.videoLabel
+        tvVideoFormat.visibility = if (labels.videoLabel.isBlank()) View.GONE else View.VISIBLE
+        tvAudioFormat.text = labels.audioLabel
+        tvAudioFormat.visibility = if (labels.audioLabel.isBlank()) View.GONE else View.VISIBLE
+    }
+
+    private fun updatePlaybackStatus(materialType: String, quality: PlaybackQuality) {
+        val materialLabel = if (materialType == "Trailer") "Trailer" else "Playback"
+        val qualityLabel = when {
+            quality.videoQuality == "UHD" && quality.hdrOverride == "None" ->
+                "4K UHD · SDR request"
+            quality.videoQuality == "UHD" ->
+                "4K UHD · ${quality.hdrOverride} request"
+            quality == PlaybackQuality.HD_H265 -> "HD H265 preset"
+            quality == PlaybackQuality.HD -> "HD H264 preset"
+            quality == PlaybackQuality.SD -> "SD (Widevine L3)"
+            else -> "HD H264 preset"
+        }
+        tvPlaybackStatus.text = "$materialLabel  ·  $qualityLabel"
+    }
+
+    private fun updatePlaybackWakeState(on: Boolean) {
+        playerView.keepScreenOn = on
+        if (on) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    private fun showError(message: String) {
+        progressBar.visibility = View.GONE
+        playerView.hideController()
+        playerView.useController = false
+        trackButtons.visibility = View.GONE
+        tvError.text = "Playback unavailable\n${VideoFormatLabeler.friendlyError(message)}"
+        tvError.visibility = View.VISIBLE
+    }
+
+    /** Returns only the HDR formats Amazon accepts and the connected display reports. */
+    @Suppress("DEPRECATION")
+    private fun supportedHdrFormats(): String {
+        val hdrTypes = windowManager.defaultDisplay.hdrCapabilities?.supportedHdrTypes ?: intArrayOf()
+        return DeviceCapabilities.supportedHdrFormats(hdrTypes)
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(",")
+            ?: "None"
+    }
+
+    private fun applyDeviceOverlayTuning() {
+        if (!android.os.Build.MANUFACTURER.equals("Amazon", ignoreCase = true)) return
+        updateMargins(trackButtons, topDp = 20, endDp = 28)
+        updateMargins(tvError, startDp = 36, bottomDp = 44)
+        tvError.maxLines = 4
+        updateWidth(tvPlaybackTitle, 224); updateWidth(tvPlaybackHint, 224)
+        updateHeight(btnAudio, 38); updateHeight(btnSubtitle, 38)
+    }
+
+    private fun updateMargins(view: View, startDp: Int? = null, topDp: Int? = null, endDp: Int? = null, bottomDp: Int? = null) {
+        val p = view.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        val d = resources.displayMetrics.density
+        startDp?.let  { p.marginStart  = (it * d).toInt() }
+        topDp?.let    { p.topMargin    = (it * d).toInt() }
+        endDp?.let    { p.marginEnd    = (it * d).toInt() }
+        bottomDp?.let { p.bottomMargin = (it * d).toInt() }
+        view.layoutParams = p
+    }
+
+    private fun updateWidth(view: View, widthDp: Int) {
+        val p = view.layoutParams ?: return
+        p.width = (widthDp * resources.displayMetrics.density).toInt()
+        view.layoutParams = p
+    }
+
+    private fun updateHeight(view: View, heightDp: Int) {
+        val p = view.layoutParams ?: return
+        p.height = (heightDp * resources.displayMetrics.density).toInt()
+        view.layoutParams = p
+    }
+}

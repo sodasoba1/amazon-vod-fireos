@@ -1,0 +1,9 @@
+package com.avod.fireos.avod.ui
+
+enum class CardPresentation {
+    POSTER,
+    LANDSCAPE,
+    SEASON,
+    PROGRESS,
+    EPISODE
+}

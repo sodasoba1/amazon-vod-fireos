@@ -50,7 +50,7 @@ We cannot confirm which handles DASH segment selection.
 
 ## Primary fix: MpdTimingCorrector
 
-**File:** `app/src/main/java/com/scriptgod/fireos/avod/player/MpdTimingCorrector.kt`
+**File:** `app/src/main/java/com/avod/fireos/avod/player/MpdTimingCorrector.kt`
 
 Converts the MPD's `SegmentList` (with inaccurate fixed `duration`) to `SegmentBase`
 (with `indexRange` pointing to the sidx box). ExoPlayer natively reads sidx for
@@ -115,7 +115,7 @@ pass through to the normal HTTP data source. Falls back to the original MPD on a
 
 ## Secondary mitigation: StallRecoveryVideoRenderer
 
-**File:** `app/src/main/java/com/scriptgod/fireos/avod/player/StallRecoveryVideoRenderer.kt`
+**File:** `app/src/main/java/com/avod/fireos/avod/player/StallRecoveryVideoRenderer.kt`
 
 Safety net in case the MPD correction doesn't cover all stall scenarios. Custom
 `MediaCodecVideoRenderer` that detects when the decoder stops producing output for

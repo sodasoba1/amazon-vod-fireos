@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to ScriptGod's FireOS AmazonVOD are documented here.
+All notable changes to FireOS AVOD are documented here.
 
 ## [Unreleased]
 
