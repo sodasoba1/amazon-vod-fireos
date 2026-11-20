@@ -5,7 +5,6 @@ import com.scriptgod.fireos.avod.auth.AmazonAuthService
 import com.scriptgod.fireos.avod.model.ContentItem
 import com.scriptgod.fireos.avod.model.ContentRail
 import com.scriptgod.fireos.avod.model.DetailInfo
-import com.scriptgod.fireos.avod.model.Availability
 import com.scriptgod.fireos.avod.model.ContentKind
 import com.scriptgod.fireos.avod.model.AudioTrack
 import com.scriptgod.fireos.avod.model.PlaybackInfo
