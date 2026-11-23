@@ -1,15 +1,14 @@
 package com.avod.fireos.avod.auth
 
-import android.util.Base64
 import android.util.Log
 import com.google.gson.Gson
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import com.google.gson.JsonObject
 import com.avod.fireos.avod.model.TokenData
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -19,6 +18,7 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -38,8 +38,6 @@ class LoginFlow {
     data class Result(
         val authCode: String? = null,
         val needsMfa: Boolean = false,
-        /** Device-approval challenge: user approves a push notification, no code is typed. */
-        val needsApproval: Boolean = false,
         val mfaMessage: String? = null,
         val error: String? = null
     )
@@ -63,7 +61,7 @@ class LoginFlow {
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
-        .followRedirects(true).followSslRedirects(false)
+        .followRedirects(true).followSslRedirects(true)
         .cookieJar(cookieJar)
         // Identify requests as coming from the Amazon app — matches what register_device.py sends.
         // Without these headers Amazon serves a browser-mode login page that requires JS cookies.
@@ -90,7 +88,6 @@ class LoginFlow {
     private var formAction: String = ""
     private var hiddenFields: Map<String, String> = emptyMap()
     private var domain: String = "amazon.com"
-    private var formBaseUrl: String = "https://www.amazon.com/"
 
     init { refreshIdentity() }
 
@@ -112,20 +109,15 @@ class LoginFlow {
 
         // Step 1: Open amazon.com to establish session
         Log.w(TAG, "Step 1: Opening amazon.com...")
-        val homeResponse = httpClient.newCall(
+        val homeBody = httpClient.newCall(
             Request.Builder().url("https://www.amazon.com").get()
                 .header("User-Agent", AmazonAuthService.USER_AGENT)
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
                 .header("Accept-Language", "en-US,en;q=0.9")
                 .header("upgrade-insecure-requests", "1")
                 .build()
-        ).execute()
-        if (!homeResponse.request.url.isHttps || !isTrustedAmazonHost(homeResponse.request.url.host)) {
-            homeResponse.close()
-            return Result(error = "Amazon redirected login to an untrusted destination. No credentials were sent.")
-        }
-        Log.w(TAG, "Homepage: HTTP ${homeResponse.code}, cookies=${cookieStore.size}")
-        val homeBody = homeResponse.body?.string() ?: ""
+        ).execute().also { Log.w(TAG, "Homepage: HTTP ${it.code}, cookies=${cookieStore.size}") }
+            .body?.string() ?: ""
 
         // Step 2: Follow sign-in link to get the OAuth base URL
         val signInLink = Regex("""href="([^"]*nav-show-sign-in[^"]*|/ap/signin[^"]*)"[^>]*class="[^"]*nav-show-sign-in""")
@@ -137,7 +129,7 @@ class LoginFlow {
         if (signInLink != null) {
             val fullLink = resolveTrustedAmazonUrl(signInLink.replace("&amp;", "&"), "https://www.amazon.com/")
                 ?: return Result(error = "Amazon returned an untrusted sign-in link. No credentials were sent.")
-            Log.w(TAG, "Step 2: Following sign-in link: ${safeUrlForLog(fullLink)}")
+            Log.w(TAG, "Step 2: Following sign-in link: ${fullLink.take(100)}")
             val resp = httpClient.newCall(Request.Builder().url(fullLink).get()
                 .header("User-Agent", AmazonAuthService.USER_AGENT)
                 .header("Accept", "text/html,application/xhtml+xml").build()).execute()
@@ -159,9 +151,7 @@ class LoginFlow {
         val baseQuery = parseQueryString(uri.rawQuery ?: "")
         val origReturnTo = baseQuery["openid.return_to"] ?: ""
         val returnToUri = if (origReturnTo.isNotEmpty()) {
-            val trustedReturnTo = resolveTrustedAmazonUrl(origReturnTo, oauthBaseUrl)
-                ?: return Result(error = "Amazon returned an untrusted OAuth return destination.")
-            val rt = URI(trustedReturnTo)
+            val rt = URI(origReturnTo)
             URI(rt.scheme, rt.authority, "/ap/maplanding", null, null).toString()
         } else "https://www.amazon.com/ap/maplanding"
 
@@ -189,7 +179,7 @@ class LoginFlow {
             "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}"
         }
         val signinUrl = URI(uri.scheme, uri.authority, uri.path, null, null).toString() + "?" + queryStr
-        Log.w(TAG, "Step 3: Loading OAuth signin: ${safeUrlForLog(signinUrl)}")
+        Log.w(TAG, "Step 3: Loading OAuth signin: ${signinUrl.take(120)}")
 
         val signinBody = httpClient.newCall(
             Request.Builder().url(signinUrl).get()
@@ -205,9 +195,8 @@ class LoginFlow {
         val actionMatch = Regex("""<form[^>]*name="signIn"[^>]*action="([^"]+)"""").find(signinBody)
             ?: Regex("""<form[^>]*action="([^"]*signin[^"]*)"[^>]*""").find(signinBody)
         formAction = actionMatch?.groupValues?.get(1)?.replace("&amp;", "&") ?: ""
-        formBaseUrl = signinUrl
         hiddenFields = extractHiddenFields(signinBody)
-        Log.w(TAG, "Form action: ${safeUrlForLog(resolveTrustedAmazonUrl(formAction, formBaseUrl))}, fields: ${hiddenFields.keys}")
+        Log.w(TAG, "Form action: ${formAction.take(100)}, fields: ${hiddenFields.keys}")
 
         if (formAction.isEmpty()) {
             if (signinBody.contains("captcha", ignoreCase = true))
@@ -223,8 +212,7 @@ class LoginFlow {
         }.build()
         val postUrl = resolveTrustedAmazonUrl(formAction, signinUrl)
             ?: return Result(error = "Amazon returned an untrusted credential form destination. No credentials were sent.")
-        formBaseUrl = postUrl
-        Log.w(TAG, "Step 4: Submitting credentials to: ${safeUrlForLog(postUrl)}, appAction=${hiddenFields["appAction"]}, cookies=${cookieStore.size}")
+        Log.w(TAG, "Step 4: Submitting credentials to: ${postUrl.take(100)}, appAction=${hiddenFields["appAction"]}, cookies=${cookieStore.size}")
 
         val credResp = noRedirectClient.newCall(
             Request.Builder().url(postUrl).post(formBody)
@@ -237,10 +225,9 @@ class LoginFlow {
         ).execute()
         val credBody = credResp.body?.string() ?: ""
         val location = credResp.header("Location")
-        Log.w(TAG, "Credential POST: HTTP ${credResp.code}, location=${safeUrlForLog(location)}, body=${credBody.length} chars")
+        Log.w(TAG, "Credential POST: HTTP ${credResp.code}, location=${location?.take(120)}, body=${credBody.length} chars")
 
-        if (location != null) return followForAuthCode(location, credResp.request.url.host)
-        formBaseUrl = postUrl
+        if (location != null) return followForAuthCode(location, uri.host)
         return parseResponseBody(credResp.code, credBody)
     }
 
@@ -253,10 +240,12 @@ class LoginFlow {
             for ((k, v) in hiddenFields) add(k, v)
             add("otpCode", mfaCode); add("rememberDevice", "")
         }.build()
-        val postUrl = resolveTrustedAmazonUrl(formAction, formBaseUrl)
-            ?: return Result(error = "Amazon returned an untrusted verification form destination.")
-        formBaseUrl = postUrl
-        Log.w(TAG, "Submitting verification to: ${safeUrlForLog(postUrl)}")
+        val postUrl = resolveTrustedAmazonUrl(when {
+            formAction.startsWith("http") -> formAction
+            formAction.startsWith("/")    -> "https://www.amazon.com$formAction"
+            else                          -> "https://www.amazon.com/ap/cvf/$formAction"
+        }, "https://www.amazon.com/") ?: return Result(error = "Amazon returned an untrusted verification form destination.")
+        Log.w(TAG, "Submitting verification to: ${postUrl.take(100)}")
 
         val resp = noRedirectClient.newCall(
             Request.Builder().url(postUrl).post(formBody)
@@ -267,50 +256,10 @@ class LoginFlow {
         ).execute()
         val body = resp.body?.string() ?: ""
         val location = resp.header("Location")
-        Log.w(TAG, "MFA POST: HTTP ${resp.code}, location=${safeUrlForLog(location)}, body=${body.length}")
+        Log.w(TAG, "MFA POST: HTTP ${resp.code}, location=${location?.take(120)}, body=${body.length}")
 
-        if (location != null) return followForAuthCode(location, resp.request.url.host)
-        formBaseUrl = postUrl
+        if (location != null) return followForAuthCode(location, "www.amazon.com")
         return parseResponseBody(resp.code, body)
-    }
-
-    /**
-     * Completes a device-approval challenge after [performFullLogin] returned [Result.needsApproval].
-     *
-     * The user approves the push notification on their Amazon device; we then re-POST the approval
-     * form WITHOUT an otpCode (submitting otpCode to the approval endpoint returns 404) and follow
-     * for the auth code. Retries a few times in case the approval is still pending, and returns
-     * [Result.needsApproval] again if it hasn't landed yet so the user can retry.
-     */
-    fun submitApproval(): Result {
-        val postUrl = resolveTrustedAmazonUrl(formAction, formBaseUrl)
-            ?: return Result(error = "Amazon returned an untrusted approval form destination.")
-        repeat(3) { attempt ->
-            val formBody = FormBody.Builder().apply {
-                for ((k, v) in hiddenFields) add(k, v)
-                add("rememberDevice", "")
-            }.build()
-            Log.w(TAG, "Approval re-submit attempt ${attempt + 1} to: ${safeUrlForLog(postUrl)}")
-            val resp = noRedirectClient.newCall(
-                Request.Builder().url(postUrl).post(formBody)
-                    .header("User-Agent", AmazonAuthService.USER_AGENT)
-                    .header("Accept", "text/html,application/xhtml+xml")
-                    .header("Content-Type", "application/x-www-form-urlencoded")
-                    .build()
-            ).execute()
-            val body = resp.body?.string() ?: ""
-            val location = resp.header("Location")
-            Log.w(TAG, "Approval POST: HTTP ${resp.code}, location=${safeUrlForLog(location)}, body=${body.length}")
-            if (location != null) return followForAuthCode(location, resp.request.url.host)
-            formBaseUrl = postUrl
-            val parsed = parseResponseBody(resp.code, body)
-            if (parsed.authCode != null) return parsed
-            // If it is no longer an approval page (switched to a code page, or a real error), hand that back.
-            if (!parsed.needsApproval) return parsed
-            if (attempt < 2) Thread.sleep(3_000)   // still pending — wait before retrying
-        }
-        return Result(needsApproval = true,
-            mfaMessage = "Still waiting for approval. Approve the notification on your device, then tap Continue.")
     }
 
     /** Exchanges an [authCode] for tokens by calling Amazon's /auth/register endpoint. */
@@ -340,7 +289,7 @@ class LoginFlow {
         )
 
         val reqId = UUID.randomUUID().toString().replace("-", "")
-        val response = noRedirectClient.newCall(
+        val response = httpClient.newCall(
             Request.Builder()
                 .url("https://api.$domain/auth/register")
                 .post(gson.toJson(payload).toRequestBody("application/json".toMediaType()))
@@ -390,17 +339,15 @@ class LoginFlow {
 
     private fun refreshIdentity() {
         val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
-        codeVerifier  = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
-        codeChallenge = Base64.encodeToString(
-            MessageDigest.getInstance("SHA-256").digest(codeVerifier.toByteArray()),
-            Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
-        )
+        codeVerifier  = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        codeChallenge = Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(MessageDigest.getInstance("SHA-256").digest(codeVerifier.toByteArray()))
         deviceId = UUID.randomUUID().toString().replace("-", "").lowercase()
         clientId = hexEncode("${deviceId}#A1MPSLFC7L5AFK")
     }
 
     private fun setupFraudCookies() {
-        val frc = Base64.encodeToString(ByteArray(313).also { SecureRandom().nextBytes(it) }, Base64.NO_WRAP)
+        val frc = Base64.getEncoder().encodeToString(ByteArray(313).also { SecureRandom().nextBytes(it) })
         val mapMd = mapOf(
             "device_registration_data" to mapOf("software_version" to "130050002"),
             "app_identifier" to mapOf(
@@ -416,34 +363,32 @@ class LoginFlow {
                 "smartlock_supported" to 0, "permission_runtime_grant" to 0
             )
         )
-        val mapMdEncoded = Base64.encodeToString(gson.toJson(mapMd).toByteArray(), Base64.NO_WRAP)
+        val mapMdEncoded = Base64.getEncoder().encodeToString(gson.toJson(mapMd).toByteArray())
         val expiry = (System.currentTimeMillis() / 1000 + 86400) * 1000
-        cookieStore["amazon.com:frc"]    = Cookie.Builder().domain("amazon.com").path("/").name("frc").value(frc).secure().expiresAt(expiry).build()
-        cookieStore["amazon.com:map-md"] = Cookie.Builder().domain("amazon.com").path("/").name("map-md").value(mapMdEncoded).secure().expiresAt(expiry).build()
-        cookieStore["amazon.com:sid"]    = Cookie.Builder().domain("amazon.com").path("/").name("sid").value("").secure().expiresAt(expiry).build()
+        cookieStore["amazon.com:frc"]    = Cookie.Builder().domain("amazon.com").path("/").name("frc").value(frc).expiresAt(expiry).build()
+        cookieStore["amazon.com:map-md"] = Cookie.Builder().domain("amazon.com").path("/").name("map-md").value(mapMdEncoded).expiresAt(expiry).build()
+        cookieStore["amazon.com:sid"]    = Cookie.Builder().domain("amazon.com").path("/").name("sid").value("").expiresAt(expiry).build()
     }
 
     private fun followForAuthCode(startUrl: String, host: String): Result {
         var url = resolveTrustedAmazonUrl(startUrl, "https://$host/")
             ?: return Result(error = "Amazon returned an untrusted authentication redirect.")
         repeat(15) {
-            extractAuthCode(url)?.let { return Result(authCode = it).also { Log.w(TAG, "Auth code received from Amazon redirect") } }
-            Log.w(TAG, "Following redirect ${it + 1}: ${safeUrlForLog(url)}")
+            extractAuthCode(url)?.let { return Result(authCode = it).also { Log.w(TAG, "Auth code found in redirect URL!") } }
+            Log.w(TAG, "Following redirect ${it + 1}: ${url.take(120)}")
             val resp = noRedirectClient.newCall(
                 Request.Builder().url(url).get()
                     .header("User-Agent", AmazonAuthService.USER_AGENT)
                     .header("Accept", "text/html,application/xhtml+xml").build()
             ).execute()
             val next = resp.header("Location") ?: run {
-                formBaseUrl = resp.request.url.toString()
                 val body = resp.body?.string() ?: ""
                 Log.w(TAG, "End of redirect chain: HTTP ${resp.code}, body=${body.length}")
                 return parseResponseBody(resp.code, body)
             }
-            val nextUrl = resolveTrustedAmazonUrl(next, resp.request.url.toString())
-            resp.close()
-            if (nextUrl == null) return Result(error = "Authentication redirect left Amazon's trusted domains.")
-            url = nextUrl
+            resp.body?.close()
+            url = resolveTrustedAmazonUrl(next, url)
+                ?: return Result(error = "Authentication redirect left Amazon's trusted domains.")
         }
         return Result(error = "Too many redirects")
     }
@@ -458,9 +403,7 @@ class LoginFlow {
             return Result(error = "Session expired. Please try again.")
         }
 
-        // CVF (Customer Verification Flow) — covers BOTH an email/SMS code page AND a device
-        // approval page ("approve the notification on your device"). They share /ap/cvf, so we
-        // must tell them apart: the code page has a code-entry input; the approval page does not.
+        // CVF (Customer Verification Flow — email/push notification)
         if (body.contains("/ap/cvf") || body.contains("cvf-widget") ||
             body.contains("fwcim-form") || body.contains("verification-code-form")) {
             val action = (Regex("""<form[^>]*id="verification-code-form"[^>]*action="([^"]+)"""").find(body)
@@ -469,23 +412,8 @@ class LoginFlow {
                 ?.groupValues?.get(1)?.replace("&amp;", "&")
             if (action != null) formAction = action
             hiddenFields = extractHiddenFields(body)
-
-            val hasCodeInput = body.contains("verification-code-form") ||
-                body.contains("cvf-input-code") ||
-                Regex("""<input[^>]*name="(otpCode|code)"""").containsMatchIn(body)
-            val isApproval = !hasCodeInput && (
-                body.contains("transactionApprovalStatus", ignoreCase = true) ||
-                body.contains("polling", ignoreCase = true) ||
-                body.contains("notification", ignoreCase = true) ||
-                body.contains("approve", ignoreCase = true))
-
-            Log.w(TAG, "CVF page (approval=$isApproval), form=${safeUrlForLog(resolveTrustedAmazonUrl(formAction, formBaseUrl))}, fields=${hiddenFields.keys}")
-            return if (isApproval) {
-                Result(needsApproval = true,
-                    mfaMessage = "Approve the sign-in notification on your device, then tap Continue.")
-            } else {
-                Result(needsMfa = true, mfaMessage = "Amazon sent a verification code to your email. Enter it below.")
-            }
+            Log.w(TAG, "CVF page, form=${formAction.take(80)}, fields=${hiddenFields.keys}")
+            return Result(needsMfa = true, mfaMessage = "Amazon sent a verification code to your email. Enter it below.")
         }
 
         // TOTP MFA
@@ -495,7 +423,7 @@ class LoginFlow {
                 ?.groupValues?.get(1)?.replace("&amp;", "&")
             if (action != null) formAction = action
             hiddenFields = extractHiddenFields(body)
-            Log.w(TAG, "MFA page, form=${safeUrlForLog(resolveTrustedAmazonUrl(formAction, formBaseUrl))}, fields=${hiddenFields.keys}")
+            Log.w(TAG, "MFA page, form=${formAction.take(80)}, fields=${hiddenFields.keys}")
             return Result(needsMfa = true, mfaMessage = "Enter the MFA code from your authenticator app.")
         }
 
@@ -511,31 +439,6 @@ class LoginFlow {
         val title = Regex("<title>([^<]*)</title>").find(body)?.groupValues?.get(1) ?: "none"
         Log.w(TAG, "Unparsed page (HTTP $statusCode), title=$title")
         return Result(error = "Unexpected response (HTTP $statusCode). Check email/password and try again.")
-    }
-
-    private fun isTrustedAmazonHost(host: String): Boolean {
-        val normalized = host.lowercase(java.util.Locale.US).trimEnd('.')
-        val trustedDomains = listOf(
-            "amazon.com", "amazon.co.uk", "amazon.de", "amazon.co.jp",
-            "amazon.com.au", "primevideo.com"
-        )
-        return trustedDomains.any { normalized == it || normalized.endsWith(".$it") }
-    }
-
-    private fun resolveTrustedAmazonUrl(raw: String, base: String): String? {
-        val baseUrl = base.toHttpUrlOrNull() ?: return null
-        val resolved = baseUrl.resolve(raw) ?: return null
-        if (!resolved.isHttps || resolved.port != 443 ||
-            resolved.username.isNotEmpty() || resolved.password.isNotEmpty() ||
-            !isTrustedAmazonHost(resolved.host)
-        ) return null
-        return resolved.toString()
-    }
-
-    private fun safeUrlForLog(raw: String?): String {
-        if (raw.isNullOrBlank()) return "[none]"
-        val parsed = raw.toHttpUrlOrNull() ?: return "[invalid URL]"
-        return "${parsed.scheme}://${parsed.host}${parsed.encodedPath}"
     }
 
     private fun extractAuthCode(url: String): String? =
@@ -559,4 +462,23 @@ class LoginFlow {
     }
 
     private fun hexEncode(s: String): String = s.toByteArray().joinToString("") { "%02x".format(it) }
+
+    private fun isTrustedAmazonHost(host: String): Boolean {
+        val normalized = host.lowercase(java.util.Locale.US).trimEnd('.')
+        val trustedDomains = listOf(
+            "amazon.com", "amazon.co.uk", "amazon.de", "amazon.co.jp",
+            "amazon.com.au", "primevideo.com"
+        )
+        return trustedDomains.any { normalized == it || normalized.endsWith(".$it") }
+    }
+
+    private fun resolveTrustedAmazonUrl(raw: String, base: String): String? {
+        val baseUrl = base.toHttpUrlOrNull() ?: return null
+        val resolved = baseUrl.resolve(raw) ?: return null
+        if (!resolved.isHttps || resolved.port != 443 ||
+            resolved.username.isNotEmpty() || resolved.password.isNotEmpty() ||
+            !isTrustedAmazonHost(resolved.host)
+        ) return null
+        return resolved.toString()
+    }
 }
